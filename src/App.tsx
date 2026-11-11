@@ -4,6 +4,7 @@ import { classes, getBoards, gradeNames, iconFor, type BoardNode, type Grade } f
 
 type Drag = { name: string; x: number; y: number; width: number; offsetX: number; offsetY: number };
 type Tooltip = { node: BoardNode; anchor: DOMRect };
+const defaultPriority = ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항'];
 function NodeTooltip({ node, anchor }: Tooltip) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0, ready: false });
@@ -29,7 +30,18 @@ export default function App() {
   const boards = useMemo(() => getBoards(classKey), [classKey]);
   const nodes = useMemo(() => boards.flatMap(b => b.nodeList), [boards]);
   const board = boards.find(b => b.boardKey === boardKey)!;
-  const commonNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === 'Common').map(n => n.name))].sort((a,b) => a.localeCompare(b, 'ko')), [nodes]);
+  const commonNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === 'Common').map(n => n.name))].sort((a,b) => {
+    const rank = (name: string) => defaultPriority.includes(name) ? defaultPriority.indexOf(name) : defaultPriority.length;
+    return rank(a) - rank(b) || a.localeCompare(b, 'ko');
+  }), [nodes]);
+  const requiredNodeTypes = useMemo(() => new Map(nodes.map(n => [n.name, n.type])), [nodes]);
+  // Until the optimizer is implemented, only the free start nodes are active.
+  const activeNodes = nodes.filter(n => n.type === 'Start');
+  const commonCounts = commonNames.map(name => ({
+    name,
+    total: nodes.filter(n => n.grade === 'Common' && n.name === name).length,
+    active: activeNodes.filter(n => n.grade === 'Common' && n.name === name).length,
+  }));
   const requiredNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === requiredGrade).map(n => n.name))].sort((a,b) => a.localeCompare(b, 'ko')), [nodes, requiredGrade]);
   const ordered = priority.length ? priority : commonNames;
   function move(name: string, to: number) {
@@ -61,15 +73,18 @@ export default function App() {
   }
   return <div className="app-shell">
     <main>
-      <div className="page-heading"><div><div className="eyebrow">DAEVANION PLANNER</div><h1>데바니온 최적화</h1><p>필수 노드와 노드 우선순위를 설정하고, 최적화 결과를 확인하세요.</p></div><div className="heading-tag"><i /> 5개 보드 · 하나의 성장 경로</div></div>
+      <div className="page-heading"><div><div className="eyebrow">DAEVANION PLANNER</div><h1>데바니온 최적화</h1><p>필수 노드와 노드 우선순위를 설정하고, 최적화된 결과를 확인하세요.</p></div><div className="creator-credit"><span>만든 사람</span><strong>마몽[바바]</strong></div></div>
       <div className="workspace">
         <aside className="settings">
           <section className="panel setup"><div className="section-title"><span className="step">01</span><h2>캐릭터 설정</h2></div><div className="setup-fields"><label>직업<select value={classKey} onChange={e => changeClass(e.target.value)}>{classes.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label><label>총 가용 포인트<div className="point-input"><input type="number" min="0" step="1" placeholder="포인트 입력" value={points} onChange={e => setPoints(e.target.value === '' ? '' : String(Math.max(0, Math.trunc(Number(e.target.value)))))} /><span>P</span></div></label></div></section>
-          <section className="panel required-panel"><div className="section-title"><span className="step">02</span><h2>필수 노드</h2></div><p className="section-description">반드시 활성화할 노드를 선택하세요.</p>
+          <section className="panel required-panel"><div className="section-title"><span className="step">02</span><h2>필수 노드 지정</h2></div>
             <div className="grade-tabs" role="tablist" aria-label="필수 노드 등급">{(['Unique','Legend','Rare'] as Grade[]).map(grade => <button type="button" role="tab" id={`grade-${grade}`} aria-selected={requiredGrade === grade} aria-controls="required-options" className={`${grade.toLowerCase()} ${requiredGrade === grade ? 'active' : ''}`} key={grade} onClick={() => setRequiredGrade(grade)}><i className="grade-dot" />{grade}</button>)}</div>
-            <div id="required-options" role="tabpanel" aria-labelledby={`grade-${requiredGrade}`} className={`node-options ${requiredGrade.toLowerCase()}`}>{requiredNames.map(name => <button key={name} className={required.includes(name) ? 'selected' : ''} aria-pressed={required.includes(name)} onClick={() => setRequired(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev,name])}>{name.replace(/^스킬 레벨 상승 - /,'')}<span>{required.includes(name) ? '✓' : '+'}</span></button>)}</div>
+            <div id="required-options" role="tabpanel" aria-labelledby={`grade-${requiredGrade}`} className={`node-options ${requiredGrade.toLowerCase()}`}>{requiredNames.map(name => {
+              const isSkill = requiredNodeTypes.get(name) === 'SkillLevel';
+              return <button key={name} className={`${isSkill ? 'skill-option' : 'stat-option'} ${required.includes(name) ? 'selected' : ''}`} aria-pressed={required.includes(name)} onClick={() => setRequired(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev,name])}><span className="option-name">{name.replace(/^스킬 레벨 상승 - /,'')}{isSkill && <span className="skill-increment"> +1</span>}</span><span className="selection-mark">{required.includes(name) ? '✓' : '+'}</span></button>;
+            })}</div>
           </section>
-          <section className="panel priority-panel"><div className="section-title"><span className="step">03</span><h2>Common 노드 우선순위</h2></div><p className="section-description">드래그하여 원하는 성장 순서를 정하세요.</p><div className="priority-list" onPointerDown={startDrag} onPointerMove={dragMove} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onLostPointerCapture={() => setDrag(null)}>{ordered.map((name,index) => <div className={`priority-item ${drag?.name === name ? 'dragging' : ''}`} key={name} data-priority={name}><span className="grip" aria-hidden="true">⠿</span><span className="rank">{index+1}</span><span className="priority-name">{name}</span><div className="order-controls"><button aria-label={`${name} 우선순위 올리기`} disabled={index===0} onClick={() => move(name,index-1)}>↑</button><button aria-label={`${name} 우선순위 내리기`} disabled={index===ordered.length-1} onClick={() => move(name,index+1)}>↓</button></div></div>)}</div><p className="field-note">높은 순위를 모두 달성한 뒤 다음 순위를 목표로 합니다.</p></section>
+          <section className="panel priority-panel"><div className="section-title"><span className="step">03</span><h2>일반 노드 우선순위</h2></div><div className="priority-list" onPointerDown={startDrag} onPointerMove={dragMove} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onLostPointerCapture={() => setDrag(null)}>{ordered.map((name,index) => <div className={`priority-item ${drag?.name === name ? 'dragging' : ''}`} key={name} data-priority={name}><span className="grip" aria-hidden="true">⠿</span><span className="rank">{index+1}</span><span className="priority-name">{name}</span><div className="order-controls"><button aria-label={`${name} 우선순위 올리기`} disabled={index===0} onClick={() => move(name,index-1)}>↑</button><button aria-label={`${name} 우선순위 내리기`} disabled={index===ordered.length-1} onClick={() => move(name,index+1)}>↓</button></div></div>)}</div><p className="field-note">높은 순위를 모두 달성한 뒤 다음 순위를 목표로 합니다.</p></section>
           <button className="calculate" type="button">최적 경로 계산<span>→</span></button>
         </aside>
         <section className="board-section" aria-label="데바니온 보드">
@@ -78,7 +93,14 @@ export default function App() {
           </div>
         </section>
       </div>
-    </main><footer><span>AION2 DAEVANION PLANNER</span><span>본 사이트는 비공식 팬 프로젝트입니다.</span></footer>
+      <section className="panel result-summary" aria-labelledby="summary-title">
+        <div className="summary-heading"><h2 id="summary-title">최적화 결과 요약</h2><span>5개 보드 전체 합산</span></div>
+        <div className="summary-columns">
+          <section className="effects-summary"><h3>총 적용 효과</h3><div className="empty-effects"><span aria-hidden="true">◇</span><p>아직 적용된 효과가 없습니다.</p></div></section>
+          <section className="counts-summary"><h3>일반 노드 활성 현황</h3><table><thead><tr><th scope="col">노드</th><th scope="col">활성</th><th scope="col">전체</th></tr></thead><tbody>{commonCounts.map(({name,active,total}) => <tr key={name}><th scope="row">{name}</th><td>{active}</td><td>{total}</td></tr>)}</tbody></table></section>
+        </div>
+      </section>
+    </main><footer><span>AION2 DAEVANION PLANNER</span><span>데이터 기준: 저장소에 포함된 데바니온 데이터</span></footer>
     {tooltip && <NodeTooltip {...tooltip} />}
     {drag && createPortal(<div className="priority-item drag-overlay" aria-hidden="true" style={{ left: drag.x, top: drag.y, width: drag.width }}><span className="grip">⠿</span><span className="rank">{ordered.indexOf(drag.name)+1}</span><span className="priority-name">{drag.name}</span></div>, document.body)}
   </div>;

@@ -6,7 +6,7 @@ import { buildGraph, prepareInput } from '../src/optimizationGraph.ts';
 import { exhaustiveOracle } from './exhaustiveOracle.ts';
 const priority = ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항'];
 const settings = (overrides = {}) => ({ classKey: 'assassin', availablePoints: 10000, requiredNodeNames: [], commonNodePriority: [...priority], ...overrides });
-const node = (nodeId: number, row: number, col: number, name = '공격력', grade = 'Common', type = 'Stat') => ({ nodeId, row, col, name, grade, type, effectList: [] });
+const node = (nodeId: number, row: number, col: number, name = '공격력', grade = '일반', type = 'Stat') => ({ nodeId, row, col, name, grade, type, effectList: [] });
 const board = (boardKey: string, nodeList: ReturnType<typeof node>[]) => ({ boardKey, boardName: boardKey, nodeList });
 const start = () => node(0, 0, 0, '', 'None', 'Start');
 
@@ -16,7 +16,7 @@ test('all 45 real boards: costs, adjacency, IDs, reachability, totals and valid 
     assert.equal(graph.roots.length, 5);
     assert.equal(graph.nodes.length, 765);
     assert.equal(new Set(graph.nodes.map(n => n.key)).size, graph.nodes.length);
-    assert.equal(graph.nodes.filter(n => n.node.grade === 'Common').length, 610);
+    assert.equal(graph.nodes.filter(n => n.node.grade === '일반').length, 610);
     assert.equal(graph.reachable.size, graph.nodes.length);
     assert.ok(prepareInput(graph, settings({ classKey: c.key }), manifest.classes.map(c => c.key)).ok);
     for (const [i, n] of graph.nodes.entries()) {

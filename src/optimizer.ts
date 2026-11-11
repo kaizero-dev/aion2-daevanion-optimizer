@@ -140,12 +140,12 @@ function transition(partition: string, step: Step, selected: boolean, root: bool
 
 export function optimizeGraph(graph: OptimizationGraph, budget: number, required: Set<number>, priority: string[], observe?: (states: number) => void): OptimizationResult | null {
   if ([...required].some(i => graph.minimumCosts[i] > budget) || [...required].reduce((sum, i) => sum + graph.nodes[i].cost, 0) > budget) return null;
-  const direct = new Set([...graph.roots, ...required, ...graph.nodes.flatMap((n, i) => n.node.grade === 'Common' && budget > 0 ? [i] : [])]);
+  const direct = new Set([...graph.roots, ...required, ...graph.nodes.flatMap((n, i) => n.node.grade === '일반' && budget > 0 ? [i] : [])]);
   const directCost = [...direct].reduce((sum, i) => sum + graph.nodes[i].cost, 0);
   if (directCost <= budget && connectedNodes(graph.nodes, graph.roots, direct).size === direct.size) {
     // Every objective is attained, or the zero budget admits only free roots.
     return { activeKeys: [...direct].map(i => graph.nodes[i].key).sort(), usedPoints: verifySelection(graph, direct, budget, required),
-      commonCounts: priority.map(name => [...direct].filter(i => graph.nodes[i].node.grade === 'Common' && graph.nodes[i].node.name === name).length), optimizedRanks: priority.length };
+      commonCounts: priority.map(name => [...direct].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length), optimizedRanks: priority.length };
   }
   const boardSteps = [...new Set(graph.nodes.map(n => n.boardKey))].sort().map(key => makeSteps(graph, graph.nodes.flatMap((n, i) => n.boardKey === key ? [i] : [])));
   const roots = new Set(graph.roots);
@@ -173,7 +173,7 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
   let radix = 1;
   for (let rank = priority.length - 1; rank >= 0; rank--) {
     placeValues.set(priority[rank], radix);
-    radix *= graph.nodes.filter(n => n.node.grade === 'Common' && n.node.name === priority[rank]).length + 1;
+    radix *= graph.nodes.filter(n => n.node.grade === '일반' && n.node.name === priority[rank]).length + 1;
     if (!Number.isSafeInteger(radix)) throw new Error('Unsafe exact lexicographic encoding');
   }
   let globalEntries: (Candidate | undefined)[] = [{ score: 0, special: 0, mask: 0n }];
@@ -185,8 +185,8 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
     for (const step of steps) {
       const i = step.node;
       const n = graph.nodes[i];
-      const targetValue = n.node.grade === 'Common' ? (placeValues.get(n.node.name) ?? 0) : 0;
-      const special = n.cost > 0 && n.node.grade !== 'Common' && !required.has(i);
+      const targetValue = n.node.grade === '일반' ? (placeValues.get(n.node.name) ?? 0) : 0;
+      const special = n.cost > 0 && n.node.grade !== '일반' && !required.has(i);
       const nextStates = new Map<string, StateTable>();
       for (const [partition, costs] of states) {
         for (const selected of forced.has(i) ? [true] : graph.minimumCosts[i] > budget ? [false] : [false, true]) {
@@ -276,7 +276,7 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
   if (!winner) return null;
   const selected = new Set(graph.nodes.flatMap((_, i) => winner!.mask & bits[i] ? [i] : []));
   if (verifySelection(graph, selected, budget, forced) !== usedPoints) throw new Error('Frontier cost mismatch');
-  const commonCounts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === 'Common' && graph.nodes[i].node.name === name).length);
+  const commonCounts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length);
   const verifiedObjective = commonCounts.reduce((sum, value, rank) => sum + value * placeValues.get(priority[rank])!, 0);
   if (verifiedObjective !== winner.score) throw new Error('Frontier achievement mismatch');
   return { activeKeys: [...selected].map(i => graph.nodes[i].key).sort(), usedPoints, optimizedRanks: priority.length, commonCounts };

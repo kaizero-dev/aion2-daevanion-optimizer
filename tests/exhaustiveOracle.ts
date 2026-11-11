@@ -11,8 +11,8 @@ export function exhaustiveOracle(graph: OptimizationGraph, budget: number, requi
     const cost = [...selected].reduce((sum, i) => sum + graph.nodes[i].cost, 0);
     if (cost > budget || [...required].some(i => !selected.has(i))) continue;
     if (connectedNodes(graph.nodes, graph.roots, selected).size !== selected.size) continue;
-    const counts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === 'Common' && graph.nodes[i].node.name === name).length);
-    const special = [...selected].filter(i => graph.nodes[i].cost > 0 && graph.nodes[i].node.grade !== 'Common' && !required.has(i)).length;
+    const counts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length);
+    const special = [...selected].filter(i => graph.nodes[i].cost > 0 && graph.nodes[i].node.grade !== '일반' && !required.has(i)).length;
     feasible.push({ selected, cost, counts, special, keys: [...selected].map(i => graph.nodes[i].key).sort() });
   }
   let candidates = feasible;

@@ -62,7 +62,7 @@ export function buildGraph(boards: Board[], costs: Record<Grade, number>): Optim
     pending.delete(current);
     for (const j of nodes[current].neighbors) minimumCosts[j] = Math.min(minimumCosts[j], minimumCosts[current] + nodes[j].cost);
   }
-  return { nodes, roots, reachable, minimumCosts, commonNames: [...new Set(nodes.filter(n => n.node.grade === 'Common').map(n => n.node.name))] };
+  return { nodes, roots, reachable, minimumCosts, commonNames: [...new Set(nodes.filter(n => n.node.grade === '일반').map(n => n.node.name))] };
 }
 
 export function connectedNodes(nodes: GraphNode[], roots: number[], selected: Set<number>): Set<number> {

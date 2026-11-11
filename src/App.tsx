@@ -44,12 +44,12 @@ export default function App() {
   const boards = useMemo(() => getBoards(classKey), [classKey]);
   const nodes = useMemo(() => boards.flatMap(b => b.nodeList), [boards]);
   const board = boards.find(b => b.boardKey === boardKey)!;
-  const commonNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === 'Common').map(n => n.name))].sort((a,b) => {
+  const commonNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === '일반').map(n => n.name))].sort((a,b) => {
     const rank = (name: string) => defaultPriority.includes(name) ? defaultPriority.indexOf(name) : defaultPriority.length;
     return rank(a) - rank(b) || a.localeCompare(b, 'ko');
   }), [nodes]);
   const requiredNodeTypes = useMemo(() => new Map(nodes.map(n => [n.name, n.type])), [nodes]);
-  const requiredLocations = useMemo(() => new Map(nodes.filter(n => n.grade !== 'Common' && n.grade !== 'None').map(node => [node.name, {
+  const requiredLocations = useMemo(() => new Map(nodes.filter(n => n.grade !== '일반' && n.grade !== 'None').map(node => [node.name, {
     node,
     boardNames: boards.filter(b => b.nodeList.some(n => n.name === node.name)).map(b => b.boardName),
   }])), [nodes, boards]);
@@ -86,8 +86,8 @@ export default function App() {
   function cancelCalculation() { job.current.cancel(); setCalculating(false); setFailure(null); }
   const commonCounts = ordered.map(name => ({
     name,
-    total: nodes.filter(n => n.grade === 'Common' && n.name === name).length,
-    active: activeNodes.filter(n => n.grade === 'Common' && n.name === name).length,
+    total: nodes.filter(n => n.grade === '일반' && n.name === name).length,
+    active: activeNodes.filter(n => n.grade === '일반' && n.name === name).length,
   }));
   const requiredNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === requiredGrade).map(n => n.name))].sort((a,b) => {
     const aIsSkill = requiredNodeTypes.get(a) === 'SkillLevel';

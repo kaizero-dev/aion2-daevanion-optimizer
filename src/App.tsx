@@ -103,6 +103,7 @@ export default function App() {
           </div>
         </section>
       </div>
+      <hr className="workspace-divider" />
       <section className="panel result-summary" aria-labelledby="summary-title">
         <div className="summary-heading"><h2 id="summary-title">최적화 결과 요약</h2><span>5개 보드 전체 합산</span></div>
         <div className="summary-columns">

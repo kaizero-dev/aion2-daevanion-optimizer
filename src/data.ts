@@ -9,7 +9,7 @@ export interface Board { boardKey: string; boardName: string; nodeList: BoardNod
 const modules = import.meta.glob<Board>('../data/boards/*/*.json', { eager: true, import: 'default' });
 const icons = import.meta.glob<string>('../assets/*.png', { eager: true, query: '?url', import: 'default' });
 export const classes = manifest.classes;
-export const gradeNames: Record<Grade, string> = { Common: '일반', Rare: '희귀', Legend: '전설', Unique: '유일' };
+export const gradeNames: Record<Grade, string> = { Common: 'Common', Rare: 'Rare', Legend: 'Legend', Unique: 'Unique' };
 export const costs = manifest.grades;
 export function getBoards(classKey: string): Board[] {
   return classes.find(c => c.key === classKey)!.boards.map(b => modules[`../data/boards/${classKey}/${b.key}.json`]);

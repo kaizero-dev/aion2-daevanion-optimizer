@@ -2,7 +2,6 @@
 
 직업과 보유 포인트에 맞춰, 필수 노드를 모두 연결하고 일반 노드를 원하는 우선순위로 확보하는 도구입니다. 2026.11.11 패치 데이터를 기준으로 계산합니다.
 
-저장소: [kaizero-dev/aion2-daevanion-optimizer](https://github.com/kaizero-dev/aion2-daevanion-optimizer)
 
 ## 사용법
 

@@ -74,7 +74,7 @@ test('unreachable required nodes and required-node cost lower bound have distinc
   assert.deepEqual(prepareInput(buildGraph([board('a', nodes)], manifest.grades), settings({ requiredNodeNames: ['required'] }), ['assassin']), { ok: false, kind: 'unreachable-required' });
 });
 
-test('oracle respects shared budget, connecting lower ranks and stopping at incomplete rank', () => {
+test('oracle respects shared budget and lexicographic rank counts including connecting nodes', () => {
   const graph = buildGraph([board('a', [start(), node(1, 0, 1, 'low'), node(2, 0, 2, 'high'), node(3, 0, 3, 'high'), node(4, 1, 0, 'low')]), board('b', [start(), node(1, 0, 1, 'high')])], manifest.grades);
   const result = exhaustiveOracle(graph, 3, new Set(), ['high', 'low'])!;
   assert.deepEqual(result.counts, [2, 1]);

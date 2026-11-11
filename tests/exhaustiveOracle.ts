@@ -19,7 +19,6 @@ export function exhaustiveOracle(graph: OptimizationGraph, budget: number, requi
   for (let rank = 0; rank < priority.length && candidates.length; rank++) {
     const max = Math.max(...candidates.map(c => c.counts[rank]));
     candidates = candidates.filter(c => c.counts[rank] === max);
-    if (max < graph.nodes.filter(n => n.node.grade === 'Common' && n.node.name === priority[rank]).length) break;
   }
   // Prefer the lexicographically smallest sorted board-key/node-ID list.
   candidates.sort((a, b) => a.cost - b.cost || a.special - b.special || compareKeys(a.keys, b.keys));

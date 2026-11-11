@@ -27,8 +27,8 @@ try {
   assert.equal(invalid.failure, 'optimization-failed');
   const start = performance.now();
   const medium = await request(worker, { requestId: 4, settings: { ...settings, availablePoints: 100 }, boards });
-  assert.equal(medium.result.commonCounts[0], 35);
-  assert.equal(medium.result.usedPoints, 99);
+  assert.deepEqual(medium.result.commonCounts, [35, 8, 10, 10, 13, 9]);
+  assert.equal(medium.result.usedPoints, 100);
   console.log(JSON.stringify({ builtWorker: asset, mediumMs: Math.round(performance.now() - start), status: 'passed' }));
 } finally { await worker.terminate(); }
 const cancelled = new Worker(bridge, { eval: true });

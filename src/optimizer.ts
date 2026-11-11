@@ -14,7 +14,7 @@ export function verifySelection(graph: OptimizationGraph, selected: Set<number>,
   return usedPoints;
 }
 
-interface Candidate { count: number; special: number; mask: bigint }
+interface Candidate { score: number; special: number; mask: bigint }
 interface Step { node: number; previousNeighbors: number[]; keep: number[]; futureGroups: number[]; futureRootMask: number }
 
 function makeSteps(graph: OptimizationGraph, members: number[]): Step[] {
@@ -112,7 +112,7 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
   if (directCost <= budget && connectedNodes(graph.nodes, graph.roots, direct).size === direct.size) {
     // Every objective is attained, or the zero budget admits only free roots.
     return { activeKeys: [...direct].map(i => graph.nodes[i].key).sort(), usedPoints: verifySelection(graph, direct, budget, required),
-      commonCounts: priority.map(name => [...direct].filter(i => graph.nodes[i].node.grade === 'Common' && graph.nodes[i].node.name === name).length), optimizedRanks: budget === 0 ? 1 : priority.length };
+      commonCounts: priority.map(name => [...direct].filter(i => graph.nodes[i].node.grade === 'Common' && graph.nodes[i].node.name === name).length), optimizedRanks: priority.length };
   }
   const boardSteps = [...new Set(graph.nodes.map(n => n.boardKey))].sort().map(key => makeSteps(graph, graph.nodes.flatMap((n, i) => n.boardKey === key ? [i] : [])));
   const roots = new Set(graph.roots);
@@ -123,98 +123,101 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
   const forced = new Set([...roots, ...required]);
   let winner: Candidate | undefined;
   let usedPoints = 0;
-  let optimizedRanks = 0;
-  for (const name of priority) {
-    let globalEntries: (Candidate | undefined)[] = [{ count: 0, special: 0, mask: 0n }];
-    for (const steps of boardSteps) {
-      let states = new Map<string, (Candidate | undefined)[]>([['', [{ count: 0, special: 0, mask: 0n }]]]);
-      for (const step of steps) {
-        const i = step.node;
-        const n = graph.nodes[i];
-        const target = n.node.grade === 'Common' && n.node.name === name;
-        const special = n.cost > 0 && n.node.grade !== 'Common' && !required.has(i);
-        const nextStates = new Map<string, (Candidate | undefined)[]>();
-        for (const [partition, costs] of states) {
-          for (const selected of forced.has(i) ? [true] : graph.minimumCosts[i] > budget ? [false] : [false, true]) {
-            const next = transition(partition, step, selected, roots.has(i));
-            if (next === null) continue;
-            let entries = nextStates.get(next);
-            if (!entries) { entries = []; nextStates.set(next, entries); }
-            for (let cost = 0; cost < costs.length; cost++) {
-              const candidate = costs[cost];
-              if (!candidate) continue;
-              const nextCost = cost + (selected ? n.cost : 0);
-              if (nextCost > limit) continue;
-              const count = candidate.count + Number(selected && target);
-              const specials = candidate.special + Number(selected && special);
-              const existing = entries[nextCost];
-              if (existing && (existing.count > count || existing.count === count && existing.special < specials)) continue;
-              const mask = selected ? candidate.mask | bits[i] : candidate.mask;
-              if (existing && existing.count === count && existing.special === specials && existing.mask >= mask) continue;
-              entries[nextCost] = { count, special: specials, mask };
-            }
-          }
-        }
-        // Same boundary + a cheaper cost + no smaller target count dominates
-        // regardless of lower-priority attributes. This is an exact Pareto reduction.
-        let stateCount = 0;
-        for (const [partition, entries] of nextStates) {
-          let bestCount = -1;
-          let any = false;
-          for (let cost = 0; cost < entries.length; cost++) {
-            const candidate = entries[cost];
-            if (!candidate) continue;
-            if (candidate.count <= bestCount) entries[cost] = undefined;
-            else { bestCount = candidate.count; any = true; stateCount++; }
-          }
-          if (!any) nextStates.delete(partition);
-        }
-        observe?.(stateCount);
-        states = nextStates;
-        if (!states.size) return null;
-      }
-      const entries = states.get('');
-      if (!entries) return null;
-      const combined: (Candidate | undefined)[] = [];
-      for (let a = 0; a < globalEntries.length; a++) {
-        const first = globalEntries[a];
-        if (!first) continue;
-        for (let b = 0; b < entries.length && a + b <= limit; b++) {
-          const second = entries[b];
-          if (!second) continue;
-          const count = first.count + second.count;
-          const special = first.special + second.special;
-          const existing = combined[a + b];
-          if (existing && (existing.count > count || existing.count === count && existing.special < special)) continue;
-          const mask = first.mask | second.mask;
-          if (existing && existing.count === count && existing.special === special && existing.mask >= mask) continue;
-          combined[a + b] = { count, special, mask };
-        }
-      }
-      let bestCount = -1;
-      for (let cost = 0; cost < combined.length; cost++) {
-        const candidate = combined[cost];
-        if (!candidate) continue;
-        if (candidate.count <= bestCount) combined[cost] = undefined;
-        else bestCount = candidate.count;
-      }
-      globalEntries = combined;
-    }
-    winner = undefined;
-    for (let cost = 0; cost < globalEntries.length; cost++) {
-      const candidate = globalEntries[cost];
-      if (candidate && (!winner || candidate.count > winner.count)) { winner = candidate; usedPoints = cost; }
-    }
-    if (!winner) return null;
-    optimizedRanks++;
-    const group = graph.nodes.flatMap((n, i) => n.node.grade === 'Common' && n.node.name === name ? [i] : []);
-    if (winner.count < group.length) break;
-    group.forEach(i => forced.add(i));
+  // Mixed-radix encoding is exactly equivalent to comparing the count vector
+  // lexicographically: every earlier digit exceeds ALL possible later digits.
+  // These data-derived place values are not arbitrary preference weights.
+  const placeValues = new Map<string, number>();
+  let radix = 1;
+  for (let rank = priority.length - 1; rank >= 0; rank--) {
+    placeValues.set(priority[rank], radix);
+    radix *= graph.nodes.filter(n => n.node.grade === 'Common' && n.node.name === priority[rank]).length + 1;
+    if (!Number.isSafeInteger(radix)) throw new Error('Unsafe exact lexicographic encoding');
   }
-  if (!winner) throw new Error('No priority groups');
+  let globalEntries: (Candidate | undefined)[] = [{ score: 0, special: 0, mask: 0n }];
+  for (const steps of boardSteps) {
+    let states = new Map<string, (Candidate | undefined)[]>([['', [{ score: 0, special: 0, mask: 0n }]]]);
+    for (const step of steps) {
+      const i = step.node;
+      const n = graph.nodes[i];
+      const targetValue = n.node.grade === 'Common' ? (placeValues.get(n.node.name) ?? 0) : 0;
+      const special = n.cost > 0 && n.node.grade !== 'Common' && !required.has(i);
+      const nextStates = new Map<string, (Candidate | undefined)[]>();
+      for (const [partition, costs] of states) {
+        for (const selected of forced.has(i) ? [true] : graph.minimumCosts[i] > budget ? [false] : [false, true]) {
+          const next = transition(partition, step, selected, roots.has(i));
+          if (next === null) continue;
+          let entries = nextStates.get(next);
+          if (!entries) { entries = []; nextStates.set(next, entries); }
+          for (let cost = 0; cost < costs.length; cost++) {
+            const candidate = costs[cost];
+            if (!candidate) continue;
+            const nextCost = cost + (selected ? n.cost : 0);
+            if (nextCost > limit) continue;
+            const score = candidate.score + (selected ? targetValue : 0);
+            const specials = candidate.special + Number(selected && special);
+            const existing = entries[nextCost];
+            if (existing && (existing.score > score || existing.score === score && existing.special < specials)) continue;
+            const mask = selected ? candidate.mask | bits[i] : candidate.mask;
+            if (existing && existing.score === score && existing.special === specials && existing.mask >= mask) continue;
+            entries[nextCost] = { score, special: specials, mask };
+          }
+        }
+      }
+      // Same boundary + a cheaper cost + no smaller target score dominates
+      // regardless of lower-priority attributes. This is an exact Pareto reduction.
+      let stateCount = 0;
+      for (const [partition, entries] of nextStates) {
+        let bestObjective = -1;
+        let any = false;
+        for (let cost = 0; cost < entries.length; cost++) {
+          const candidate = entries[cost];
+          if (!candidate) continue;
+          if (candidate.score <= bestObjective) entries[cost] = undefined;
+          else { bestObjective = candidate.score; any = true; stateCount++; }
+        }
+        if (!any) nextStates.delete(partition);
+      }
+      observe?.(stateCount);
+      states = nextStates;
+      if (!states.size) return null;
+    }
+    const entries = states.get('');
+    if (!entries) return null;
+    const combined: (Candidate | undefined)[] = [];
+    for (let a = 0; a < globalEntries.length; a++) {
+      const first = globalEntries[a];
+      if (!first) continue;
+      for (let b = 0; b < entries.length && a + b <= limit; b++) {
+        const second = entries[b];
+        if (!second) continue;
+        const score = first.score + second.score;
+        const special = first.special + second.special;
+        const existing = combined[a + b];
+        if (existing && (existing.score > score || existing.score === score && existing.special < special)) continue;
+        const mask = first.mask | second.mask;
+        if (existing && existing.score === score && existing.special === special && existing.mask >= mask) continue;
+        combined[a + b] = { score, special, mask };
+      }
+    }
+    let bestObjective = -1;
+    for (let cost = 0; cost < combined.length; cost++) {
+      const candidate = combined[cost];
+      if (!candidate) continue;
+      if (candidate.score <= bestObjective) combined[cost] = undefined;
+      else bestObjective = candidate.score;
+    }
+    globalEntries = combined;
+  }
+  winner = undefined;
+  for (let cost = 0; cost < globalEntries.length; cost++) {
+    const candidate = globalEntries[cost];
+    if (candidate && (!winner || candidate.score > winner.score)) { winner = candidate; usedPoints = cost; }
+  }
+  if (!winner) return null;
   const selected = new Set(graph.nodes.flatMap((_, i) => winner!.mask & bits[i] ? [i] : []));
   if (verifySelection(graph, selected, budget, forced) !== usedPoints) throw new Error('Frontier cost mismatch');
   const commonCounts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === 'Common' && graph.nodes[i].node.name === name).length);
-  if (commonCounts[optimizedRanks - 1] !== winner.count) throw new Error('Frontier achievement mismatch');
-  return { activeKeys: [...selected].map(i => graph.nodes[i].key).sort(), usedPoints, optimizedRanks, commonCounts };
+  const verifiedObjective = commonCounts.reduce((sum, value, rank) => sum + value * placeValues.get(priority[rank])!, 0);
+  if (verifiedObjective !== winner.score) throw new Error('Frontier achievement mismatch');
+  return { activeKeys: [...selected].map(i => graph.nodes[i].key).sort(), usedPoints, optimizedRanks: priority.length, commonCounts };
 }

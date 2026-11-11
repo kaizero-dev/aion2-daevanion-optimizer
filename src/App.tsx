@@ -1,10 +1,15 @@
-import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { classes, getBoards, gradeNames, iconFor, type BoardNode, type Grade } from './data';
+import { nodeKey } from './optimizationGraph';
+import { OptimizationJob } from './optimizationJob';
+import { reportOptimizationFailure, type OptimizationFailure, type OptimizationSettings } from './optimizationFeedback';
+import type { OptimizationResult } from './optimizer';
+import { readSettings, saveSettings, defaultPriority } from './settingsStorage';
+import { summarizeEffects } from './optimizationEffects';
 
 type Drag = { name: string; x: number; y: number; width: number; offsetX: number; offsetY: number };
 type Tooltip = { node: BoardNode; anchor: DOMRect; pointer?: { x: number; y: number }; boardNames?: string[] };
-const defaultPriority = ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항'];
 function NodeTooltip({ node, anchor, pointer, boardNames }: Tooltip) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0, ready: false });
@@ -21,14 +26,21 @@ function NodeTooltip({ node, anchor, pointer, boardNames }: Tooltip) {
   </div>, document.body);
 }
 export default function App() {
-  const [classKey, setClassKey] = useState('gladiator');
-  const [points, setPoints] = useState('');
+  const [initial] = useState(readSettings);
+  const [classKey, setClassKey] = useState(initial.classKey);
+  const [points, setPoints] = useState(initial.points);
   const [boardKey, setBoardKey] = useState('nezakan');
-  const [required, setRequired] = useState<string[]>([]);
+  const [required, setRequired] = useState<string[]>(initial.required);
   const [requiredGrade, setRequiredGrade] = useState<Grade>('Unique');
-  const [priority, setPriority] = useState<string[]>([]);
+  const [priority, setPriority] = useState<string[]>(initial.priority);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
+  const [result, setResult] = useState<OptimizationResult | null>(null);
+  const [calculating, setCalculating] = useState(false);
+  const [failure, setFailure] = useState<{ id: number; kind: OptimizationFailure; settings: OptimizationSettings } | null>(null);
+  const job = useRef(new OptimizationJob());
+  const dialog = useRef<HTMLDialogElement>(null);
+  const calculateButton = useRef<HTMLButtonElement>(null);
   const boards = useMemo(() => getBoards(classKey), [classKey]);
   const nodes = useMemo(() => boards.flatMap(b => b.nodeList), [boards]);
   const board = boards.find(b => b.boardKey === boardKey)!;
@@ -41,9 +53,37 @@ export default function App() {
     node,
     boardNames: boards.filter(b => b.nodeList.some(n => n.name === node.name)).map(b => b.boardName),
   }])), [nodes, boards]);
-  // Until the optimizer is implemented, only the free start nodes are active.
-  const activeNodes = nodes.filter(n => n.type === 'Start');
+  const activeKeys = useMemo(() => new Set(result?.activeKeys ?? []), [result]);
+  const activeNodes = boards.flatMap(b => b.nodeList.filter(n => n.type === 'Start' || activeKeys.has(nodeKey(b.boardKey, n.nodeId))));
+  const effects = summarizeEffects(activeNodes);
   const ordered = priority.length ? priority : commonNames;
+  useLayoutEffect(() => {
+    job.current.cancel(); setCalculating(false); setResult(null); setFailure(null);
+    saveSettings({ classKey, points, required, priority: priority.length ? priority : commonNames });
+  }, [classKey, points, required, priority, commonNames]);
+  useLayoutEffect(() => {
+    const modal = dialog.current!;
+    if (calculating && !modal.open) modal.showModal();
+    else if (!calculating && modal.open) { modal.close(); calculateButton.current?.focus(); }
+  }, [calculating]);
+  useEffect(() => () => job.current.cancel(), []);
+  useEffect(() => {
+    if (failure && job.current.isCurrent(failure.id)) {
+      reportOptimizationFailure(failure.kind, failure.settings);
+      setFailure(null);
+    }
+  }, [failure]);
+  function calculate() {
+    setTooltip(null); setDrag(null); setResult(null); setFailure(null); setCalculating(true);
+    job.current.start({ classKey, availablePoints: points === '' ? 0 : Number(points), requiredNodeNames: required, commonNodePriority: ordered },
+      () => new Worker(new URL('./optimization.worker.ts', import.meta.url), { type: 'module' }),
+      (response, settings) => {
+        setCalculating(false);
+        if (response.failure) setFailure({ id: response.requestId, kind: response.failure, settings });
+        else setResult(response.result);
+      }, boards);
+  }
+  function cancelCalculation() { job.current.cancel(); setCalculating(false); setFailure(null); }
   const commonCounts = ordered.map(name => ({
     name,
     total: nodes.filter(n => n.grade === 'Common' && n.name === name).length,
@@ -95,11 +135,11 @@ export default function App() {
             })}</div>
           </section>
           <section className="panel priority-panel"><div className="section-title"><span className="step">03</span><h2>일반 노드 우선순위</h2></div><div className="priority-list" onPointerDown={startDrag} onPointerMove={dragMove} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onLostPointerCapture={() => setDrag(null)}>{ordered.map((name,index) => <div className={`priority-item ${drag?.name === name ? 'dragging' : ''}`} key={name} data-priority={name}><span className="grip" aria-hidden="true">⠿</span><span className="rank">{index+1}</span><span className="priority-name">{name}</span><div className="order-controls"><button aria-label={`${name} 우선순위 올리기`} disabled={index===0} onClick={() => move(name,index-1)}>↑</button><button aria-label={`${name} 우선순위 내리기`} disabled={index===ordered.length-1} onClick={() => move(name,index+1)}>↓</button></div></div>)}</div><p className="field-note">높은 순위를 모두 달성한 뒤 다음 순위를 목표로 합니다.</p></section>
-          <button className="calculate" type="button">최적화 계산<span>→</span></button>
+          <button className="calculate" type="button" ref={calculateButton} onClick={calculate}>최적화 계산<span>→</span></button>
         </aside>
         <section className="board-section" aria-label="데바니온 보드">
           <div className="panel board-panel"><div className="board-tabs" role="tablist" aria-label="데바니온 보드">{boards.map(b => <button role="tab" aria-selected={boardKey===b.boardKey} key={b.boardKey} onClick={() => { setBoardKey(b.boardKey); setTooltip(null); }} className={boardKey===b.boardKey ? 'active' : ''}>{b.boardName}</button>)}</div>
-            <div className="board-viewport" onScroll={() => setTooltip(null)}><div className="board-grid">{board.nodeList.filter(n => n.type !== 'None').map(n => <button key={n.nodeId} className={`board-node ${n.type==='Start' ? 'start-node' : ''}`} style={{gridRow:n.row,gridColumn:n.col}} aria-label={`${n.name}, ${n.type==='Start' ? '시작 노드' : gradeNames[n.grade as Grade]}`} aria-describedby={tooltip?.node.nodeId === n.nodeId ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ pointer: { x:e.clientX, y:e.clientY }, node:n, anchor:e.currentTarget.getBoundingClientRect() })} onMouseMove={e => { const pointer = { x:e.clientX, y:e.clientY }; setTooltip(prev => prev ? { ...prev, pointer } : prev); }} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ node:n, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if(e.key === 'Escape') setTooltip(null); }} onClick={e => setTooltip({ pointer: e.detail ? { x:e.clientX, y:e.clientY } : undefined, node:n, anchor:e.currentTarget.getBoundingClientRect() })}><img src={iconFor(n,classKey)} alt="" draggable={false} /></button>)}</div></div>
+            <div className="board-viewport" onScroll={() => setTooltip(null)}><div className="board-grid">{board.nodeList.filter(n => n.type !== 'None').map(n => <button key={n.nodeId} className={`board-node ${n.type==='Start' ? 'start-node' : ''}`} style={{gridRow:n.row,gridColumn:n.col}} aria-label={`${n.name}, ${n.type==='Start' ? '시작 노드' : gradeNames[n.grade as Grade]}`} aria-describedby={tooltip?.node.nodeId === n.nodeId ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ pointer: { x:e.clientX, y:e.clientY }, node:n, anchor:e.currentTarget.getBoundingClientRect() })} onMouseMove={e => { const pointer = { x:e.clientX, y:e.clientY }; setTooltip(prev => prev ? { ...prev, pointer } : prev); }} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ node:n, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if(e.key === 'Escape') setTooltip(null); }} onClick={e => setTooltip({ pointer: e.detail ? { x:e.clientX, y:e.clientY } : undefined, node:n, anchor:e.currentTarget.getBoundingClientRect() })}><img src={iconFor(n,classKey,activeKeys.has(nodeKey(board.boardKey,n.nodeId)))} alt="" draggable={false} /></button>)}</div></div>
           </div>
         </section>
       </div>
@@ -107,11 +147,12 @@ export default function App() {
       <section className="panel result-summary" aria-labelledby="summary-title">
         <div className="summary-heading"><h2 id="summary-title">최적화 결과 요약</h2><span>5개 보드 전체 합산</span></div>
         <div className="summary-columns">
-          <section className="effects-summary"><h3>총 적용 효과</h3><div className="empty-effects"><span aria-hidden="true">◇</span><p>아직 적용된 효과가 없습니다.</p></div></section>
+          <section className="effects-summary"><h3>총 적용 효과</h3>{effects.length ? <ul className="applied-effects">{effects.map(effect => <li key={effect}>{effect}</li>)}</ul> : <div className="empty-effects"><span aria-hidden="true">◇</span><p>아직 적용된 효과가 없습니다.</p></div>}</section>
           <section className="counts-summary"><h3>일반 노드 활성 현황</h3><table aria-label="일반 노드별 활성 개수와 전체 개수"><tbody>{commonCounts.map(({name,active,total}) => <tr key={name}><th scope="row">{name}</th><td aria-label={`활성 ${active}개`}>{active}</td><td aria-label={`전체 ${total}개`}>{total}</td></tr>)}</tbody></table></section>
         </div>
       </section>
     </main><footer><span><time dateTime="2026-11-11">2026.11.11</time> 패치 기준</span></footer>
+    {createPortal(<dialog ref={dialog} className="calculation-dialog" aria-labelledby="calculation-title" onCancel={e => e.preventDefault()}><p id="calculation-title">최적화 계산 중</p><button type="button" autoFocus onClick={cancelCalculation}>중단</button></dialog>, document.body)}
     {tooltip && <NodeTooltip {...tooltip} />}
     {drag && createPortal(<div className="priority-item drag-overlay" aria-hidden="true" style={{ left: drag.x, top: drag.y, width: drag.width }}><span className="grip">⠿</span><span className="rank">{ordered.indexOf(drag.name)+1}</span><span className="priority-name">{drag.name}</span></div>, document.body)}
   </div>;

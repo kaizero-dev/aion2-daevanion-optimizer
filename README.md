@@ -6,6 +6,7 @@ React + TypeScript + Vite 기반 프론트엔드입니다.
 
 Node.js 22 이상에서 `npm install` 후 `npm run dev`로 실행합니다.
 `npm run build`는 타입 검사 후 `dist/`에 정적 사이트를 생성합니다.
+`npm test`는 Node 22.16 이상에서 그래프·완전탐색 대조·실제 데이터·요청 취소·설정 저장·실패 피드백을 검증합니다.
 
 ## Cloudflare Pages
 
@@ -15,5 +16,7 @@ Node.js 22 이상에서 `npm install` 후 `npm run dev`로 실행합니다.
 - Node.js 버전: 22 (`.node-version`)
 
 JSON과 이미지는 Vite 빌드에 포함됩니다. 별도 데이터 서버가 필요하지 않습니다.
-현재 직업·포인트 입력, 필수 노드 선택, 우선순위 정렬과 보드 열람을 지원하며 계산 버튼은 동작하지 않습니다.
+직업·포인트 입력, 필수 노드 선택, 우선순위 정렬과 보드 열람을 지원합니다. 최적화는 Web Worker 안에서 정확한 동적 계획법으로 실행하며, 계산 중 중단할 수 있습니다. 사용자 설정은 새로고침 후에도 유지합니다. HiGHS는 개발용 정답 대조에만 사용하며 배포물에는 포함하지 않습니다.
+
+`npm run build` 후 `node tests/workerBuildProbe.mjs`로 빌드 Worker의 실제 스레드 실행·종료를 확인할 수 있습니다. `node --experimental-strip-types tests/realDataProbe.ts`는 9개 직업의 실제 데이터 조합을 검증합니다. 실제 브라우저의 모달·포커스·결과 표시는 사용자가 확인합니다. 진행 상황과 성능·검증 범위는 `PROJECT_SPEC.md` 상단, 계산 규칙은 `STRATEGY_SPEC.md`를 확인하세요.
 

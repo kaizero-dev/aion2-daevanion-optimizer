@@ -1,0 +1,57 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import loadHighs from 'highs';
+import { buildGraph } from '../src/optimizationGraph.ts';
+import { optimizeGraph } from './highsReference.ts';
+import { exhaustiveOracle } from './exhaustiveOracle.ts';
+import { optimizeGraph as optimizeFrontier } from '../src/optimizer.ts';
+
+test('frontier DP and HiGHS agree with all-subset oracle on 400 seeded connected/disconnected multi-board fixtures', async () => {
+  const highs = await loadHighs();
+  const solve = lp => highs.solve(lp, { output_flag: false, mip_rel_gap: 0, mip_abs_gap: 0 });
+  let seed = 123456;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32; };
+  for (let trial = 0; trial < 400; trial++) {
+    const boards = ['a', 'b'].map(boardKey => ({ boardKey, boardName: boardKey, nodeList: Array.from({ length: 6 }, (_, i) => ({
+      nodeId: i, row: Math.floor(i / 3), col: i % 3, name: i === 0 ? '' : random() < 0.5 ? 'high' : 'low',
+      type: i === 0 ? 'Start' : random() < 0.1 ? 'None' : 'Stat', grade: i === 0 ? 'None' : random() < 0.2 ? 'Rare' : 'Common', effectList: [],
+    })) }));
+    const graph = buildGraph(boards, { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+    const required = new Set(graph.nodes.flatMap((n, i) => n.cost > 0 && random() < 0.12 ? [i] : []));
+    const budget = Math.floor(random() * 13);
+    const oracle = exhaustiveOracle(graph, budget, required, ['high', 'low']);
+    const actual = optimizeGraph(graph, budget, required, ['high', 'low'], solve);
+    const frontier = optimizeFrontier(graph, budget, required, ['high', 'low']);
+    assert.deepEqual(actual?.activeKeys ?? null, oracle?.keys ?? null, `trial ${trial}, budget ${budget}`);
+    assert.deepEqual(frontier?.activeKeys ?? null, oracle?.keys ?? null, `frontier trial ${trial}, budget ${budget}`);
+    if (actual) assert.equal(actual.usedPoints, oracle!.cost);
+  }
+});
+
+test('unproven, erroneous and invalid solver responses never produce success', () => {
+  const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [{ nodeId: 0, row: 0, col: 0, name: '', type: 'Start', grade: 'None', effectList: [] }, { nodeId: 1, row: 0, col: 1, name: 'high', type: 'Stat', grade: 'Common', effectList: [] }, { nodeId: 2, row: 0, col: 2, name: 'high', type: 'Stat', grade: 'Common', effectList: [] }] }], { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+  for (const Status of ['Time limit reached', 'Unknown', 'Solve error', 'Feasible']) {
+    assert.throws(() => optimizeGraph(graph, 1, new Set(), ['high'], () => ({ Status, ObjectiveValue: 0, Columns: {} })));
+  }
+  assert.throws(() => optimizeGraph(graph, 1, new Set(), ['high'], () => ({ Status: 'Optimal', ObjectiveValue: 0, Columns: { x0: { Primal: 0.5 } } })));
+});
+
+test('point cost precedes special count, and special count breaks only equal-cost ties', () => {
+  const n = (id, row, col, name, grade = 'Common', type = 'Stat') => ({ nodeId: id, row, col, name, grade, type, effectList: [] });
+  for (const grade of ['Rare', 'Legend']) {
+    const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [n(0, 0, 0, '', 'None', 'Start'), n(1, 0, 1, 'special', grade), n(2, 0, 2, 'high'), n(3, 1, 0, 'low'), n(4, 1, 1, 'low'), n(5, 1, 2, 'low'), n(6, 5, 5, 'high')] }], { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+    const result = optimizeFrontier(graph, 4, new Set(), ['high', 'low'])!;
+    assert.equal(result.usedPoints, grade === 'Rare' ? 3 : 4);
+    assert.equal(result.activeKeys.includes('a:1'), grade === 'Rare');
+    assert.equal(result.optimizedRanks, 1);
+    assert.deepEqual(result.activeKeys, exhaustiveOracle(graph, 4, new Set(), ['high', 'low'])!.keys);
+  }
+});
+
+test('required connecting paths are reselected to obtain a higher-rank target', () => {
+  const n = (id, row, col, name, grade = 'Common', type = 'Stat') => ({ nodeId: id, row, col, name, grade, type, effectList: [] });
+  const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [n(0, 0, 0, '', 'None', 'Start'), n(1, 0, 1, 'low'), n(2, 1, 0, 'high'), n(3, 1, 1, 'required', 'Rare')] }], { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+  const result = optimizeFrontier(graph, 3, new Set([3]), ['high', 'low'])!;
+  assert.deepEqual(result.activeKeys, ['a:0', 'a:2', 'a:3']);
+  assert.deepEqual(result.commonCounts, [1, 0]);
+});

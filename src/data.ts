@@ -26,7 +26,7 @@ export const costs = manifest.grades;
 export function getBoards(classKey: string): Board[] {
   return classes.find(c => c.key === classKey)!.boards.map(b => modules[`../data/boards/${classKey}/${b.key}.json`]);
 }
-export function iconFor(node: BoardNode, classKey: string) {
-  const name = node.type === 'Start' ? `start_${classKey}` : node.grade.toLowerCase();
+export function iconFor(node: BoardNode, classKey: string, active = false) {
+  const name = node.type === 'Start' ? `start_${classKey}` : `${node.grade.toLowerCase()}${active ? '_open' : ''}`;
   return (node.type === 'Start' ? startIcons : icons)[`../assets/board_icon_${name}.png`];
 }

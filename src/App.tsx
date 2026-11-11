@@ -1,21 +1,23 @@
-﻿import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { classes, getBoards, gradeNames, iconFor, type BoardNode, type Grade } from './data';
 
 type Drag = { name: string; x: number; y: number; width: number; offsetX: number; offsetY: number };
-type Tooltip = { node: BoardNode; anchor: DOMRect; boardNames?: string[] };
+type Tooltip = { node: BoardNode; anchor: DOMRect; pointer?: { x: number; y: number }; boardNames?: string[] };
 const defaultPriority = ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항'];
-function NodeTooltip({ node, anchor, boardNames }: Tooltip) {
+function NodeTooltip({ node, anchor, pointer, boardNames }: Tooltip) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0, ready: false });
   useLayoutEffect(() => {
     const rect = ref.current!.getBoundingClientRect();
-    const left = Math.max(8, Math.min(anchor.right + 10, window.innerWidth - rect.width - 8));
-    const top = Math.max(8, Math.min(anchor.top, window.innerHeight - rect.height - 8));
+    const x = pointer?.x ?? anchor.right;
+    const y = pointer?.y ?? anchor.top;
+    const left = Math.max(8, Math.min(x + 14 + rect.width > window.innerWidth - 8 ? x - rect.width - 14 : x + 14, window.innerWidth - rect.width - 8));
+    const top = Math.max(8, Math.min(y + 18 + rect.height > window.innerHeight - 8 ? y - rect.height - 14 : y + 18, window.innerHeight - rect.height - 8));
     setPosition({ left, top, ready: true });
-  }, [anchor]);
+  }, [anchor, pointer, node, boardNames]);
   return createPortal(<div ref={ref} id="node-tooltip" role="tooltip" className={`node-tooltip ${node.grade.toLowerCase()}`} style={{ left: position.left, top: position.top, visibility: position.ready ? 'visible' : 'hidden' }}>
-    <strong>{node.name.replace(/^스킬 레벨 상승 - /,'')}</strong><div className="tooltip-description">{boardNames ? <p>{boardNames.join(' · ')}</p> : node.type === 'Start' ? <p>항상 활성화되는 시작 노드</p> : node.effectList.filter(e => e.desc).map((effect, i) => <p key={i}>{effect.desc}</p>)}</div>
+    {!boardNames && <strong>{node.name.replace(/^스킬 레벨 상승 - /,'')}</strong>}<div className={`tooltip-description ${boardNames ? 'boards-only' : ''}`}>{boardNames ? <p>{boardNames.join(' · ')}</p> : node.type === 'Start' ? <p>항상 활성화되는 시작 노드</p> : node.effectList.filter(e => e.desc).map((effect, i) => <p key={i}>{effect.desc}</p>)}</div>
   </div>, document.body);
 }
 export default function App() {
@@ -41,13 +43,13 @@ export default function App() {
   }])), [nodes, boards]);
   // Until the optimizer is implemented, only the free start nodes are active.
   const activeNodes = nodes.filter(n => n.type === 'Start');
-  const commonCounts = commonNames.map(name => ({
+  const ordered = priority.length ? priority : commonNames;
+  const commonCounts = ordered.map(name => ({
     name,
     total: nodes.filter(n => n.grade === 'Common' && n.name === name).length,
     active: activeNodes.filter(n => n.grade === 'Common' && n.name === name).length,
   }));
   const requiredNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === requiredGrade).map(n => n.name))].sort((a,b) => a.localeCompare(b, 'ko')), [nodes, requiredGrade]);
-  const ordered = priority.length ? priority : commonNames;
   function move(name: string, to: number) {
     setPriority(prev => {
       const next = [...(prev.length ? prev : commonNames)]; const from = next.indexOf(name);
@@ -85,7 +87,7 @@ export default function App() {
             <div className="grade-tabs" role="tablist" aria-label="필수 노드 등급">{(['Unique','Legend','Rare'] as Grade[]).map(grade => <button type="button" role="tab" id={`grade-${grade}`} aria-selected={requiredGrade === grade} aria-controls="required-options" className={`${grade.toLowerCase()} ${requiredGrade === grade ? 'active' : ''}`} key={grade} onClick={() => { setRequiredGrade(grade); setTooltip(null); }}><i className="grade-dot" />{grade}</button>)}</div>
             <div id="required-options" role="tabpanel" aria-labelledby={`grade-${requiredGrade}`} className={`node-options ${requiredGrade.toLowerCase()}`}>{requiredNames.map(name => {
               const isSkill = requiredNodeTypes.get(name) === 'SkillLevel';
-              return <button key={name} className={required.includes(name) ? 'selected' : ''} aria-pressed={required.includes(name)} aria-describedby={tooltip?.boardNames && tooltip.node.name === name ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ ...requiredLocations.get(name)!, anchor:e.currentTarget.getBoundingClientRect() })} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ ...requiredLocations.get(name)!, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if (e.key === 'Escape') setTooltip(null); }} onClick={() => setRequired(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev,name])}><span className="option-name">{name.replace(/^스킬 레벨 상승 - /,'')}{isSkill && <span className="skill-increment"> +1</span>}</span><span className="selection-mark">{required.includes(name) ? '✓' : '+'}</span></button>;
+              return <button key={name} className={required.includes(name) ? 'selected' : ''} aria-pressed={required.includes(name)} aria-describedby={tooltip?.boardNames && tooltip.node.name === name ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ pointer: { x:e.clientX, y:e.clientY }, ...requiredLocations.get(name)!, anchor:e.currentTarget.getBoundingClientRect() })} onMouseMove={e => { const pointer = { x:e.clientX, y:e.clientY }; setTooltip(prev => prev ? { ...prev, pointer } : prev); }} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ ...requiredLocations.get(name)!, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if (e.key === 'Escape') setTooltip(null); }} onClick={() => setRequired(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev,name])}><span className="option-name">{name.replace(/^스킬 레벨 상승 - /,'')}{isSkill && <span className="skill-increment"> +1</span>}</span><span className="selection-mark">{required.includes(name) ? '✓' : '+'}</span></button>;
             })}</div>
           </section>
           <section className="panel priority-panel"><div className="section-title"><span className="step">03</span><h2>일반 노드 우선순위</h2></div><div className="priority-list" onPointerDown={startDrag} onPointerMove={dragMove} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onLostPointerCapture={() => setDrag(null)}>{ordered.map((name,index) => <div className={`priority-item ${drag?.name === name ? 'dragging' : ''}`} key={name} data-priority={name}><span className="grip" aria-hidden="true">⠿</span><span className="rank">{index+1}</span><span className="priority-name">{name}</span><div className="order-controls"><button aria-label={`${name} 우선순위 올리기`} disabled={index===0} onClick={() => move(name,index-1)}>↑</button><button aria-label={`${name} 우선순위 내리기`} disabled={index===ordered.length-1} onClick={() => move(name,index+1)}>↓</button></div></div>)}</div><p className="field-note">높은 순위를 모두 달성한 뒤 다음 순위를 목표로 합니다.</p></section>
@@ -93,7 +95,7 @@ export default function App() {
         </aside>
         <section className="board-section" aria-label="데바니온 보드">
           <div className="panel board-panel"><div className="board-tabs" role="tablist" aria-label="데바니온 보드">{boards.map(b => <button role="tab" aria-selected={boardKey===b.boardKey} key={b.boardKey} onClick={() => { setBoardKey(b.boardKey); setTooltip(null); }} className={boardKey===b.boardKey ? 'active' : ''}>{b.boardName}</button>)}</div>
-            <div className="board-viewport" onScroll={() => setTooltip(null)}><div className="board-grid">{board.nodeList.filter(n => n.type !== 'None').map(n => <button key={n.nodeId} className={`board-node ${n.type==='Start' ? 'start-node' : ''}`} style={{gridRow:n.row,gridColumn:n.col}} aria-label={`${n.name}, ${n.type==='Start' ? '시작 노드' : gradeNames[n.grade as Grade]}`} aria-describedby={tooltip?.node.nodeId === n.nodeId ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ node:n, anchor:e.currentTarget.getBoundingClientRect() })} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ node:n, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if(e.key === 'Escape') setTooltip(null); }} onClick={e => setTooltip({ node:n, anchor:e.currentTarget.getBoundingClientRect() })}><img src={iconFor(n,classKey)} alt="" draggable={false} /></button>)}</div></div>
+            <div className="board-viewport" onScroll={() => setTooltip(null)}><div className="board-grid">{board.nodeList.filter(n => n.type !== 'None').map(n => <button key={n.nodeId} className={`board-node ${n.type==='Start' ? 'start-node' : ''}`} style={{gridRow:n.row,gridColumn:n.col}} aria-label={`${n.name}, ${n.type==='Start' ? '시작 노드' : gradeNames[n.grade as Grade]}`} aria-describedby={tooltip?.node.nodeId === n.nodeId ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ pointer: { x:e.clientX, y:e.clientY }, node:n, anchor:e.currentTarget.getBoundingClientRect() })} onMouseMove={e => { const pointer = { x:e.clientX, y:e.clientY }; setTooltip(prev => prev ? { ...prev, pointer } : prev); }} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ node:n, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if(e.key === 'Escape') setTooltip(null); }} onClick={e => setTooltip({ pointer: e.detail ? { x:e.clientX, y:e.clientY } : undefined, node:n, anchor:e.currentTarget.getBoundingClientRect() })}><img src={iconFor(n,classKey)} alt="" draggable={false} /></button>)}</div></div>
           </div>
         </section>
       </div>
@@ -101,10 +103,10 @@ export default function App() {
         <div className="summary-heading"><h2 id="summary-title">최적화 결과 요약</h2><span>5개 보드 전체 합산</span></div>
         <div className="summary-columns">
           <section className="effects-summary"><h3>총 적용 효과</h3><div className="empty-effects"><span aria-hidden="true">◇</span><p>아직 적용된 효과가 없습니다.</p></div></section>
-          <section className="counts-summary"><h3>일반 노드 활성 현황</h3><table><thead><tr><th scope="col">노드</th><th scope="col">활성</th><th scope="col">전체</th></tr></thead><tbody>{commonCounts.map(({name,active,total}) => <tr key={name}><th scope="row">{name}</th><td>{active}</td><td>{total}</td></tr>)}</tbody></table></section>
+          <section className="counts-summary"><h3>일반 노드 활성 현황</h3><table aria-label="일반 노드별 활성 개수와 전체 개수"><tbody>{commonCounts.map(({name,active,total}) => <tr key={name}><th scope="row">{name}</th><td aria-label={`활성 ${active}개`}>{active}</td><td aria-label={`전체 ${total}개`}>{total}</td></tr>)}</tbody></table></section>
         </div>
       </section>
-    </main><footer><span>AION2 DAEVANION PLANNER</span><span>게임 패치 기준 · <time dateTime="2026-11-11">2026.11.11</time></span></footer>
+    </main><footer><span><time dateTime="2026-11-11">2026.11.11</time> 패치 기준</span></footer>
     {tooltip && <NodeTooltip {...tooltip} />}
     {drag && createPortal(<div className="priority-item drag-overlay" aria-hidden="true" style={{ left: drag.x, top: drag.y, width: drag.width }}><span className="grip">⠿</span><span className="rank">{ordered.indexOf(drag.name)+1}</span><span className="priority-name">{drag.name}</span></div>, document.body)}
   </div>;

@@ -36,3 +36,18 @@
 
 계산은 사용자의 브라우저에서 실행합니다.
 
+
+## 로컬 테스트 (Windows)
+
+프로젝트 폴더에서 `start-local.cmd`를 실행한 뒤 브라우저로 http://127.0.0.1:5173 에 접속하세요. 처음 실행하면 공식 Node.js 22 Windows x64 배포본과 의존성을 내려받습니다. 다운로드한 런타임은 SHA-256을 검증하며, `.tools` 폴더 안에서만 사용하므로 시스템 Node.js 설정은 변경하지 않습니다.
+
+개발 서버가 실행된 터미널을 유지하면 소스 수정이 자동 반영됩니다. 중단하려면 터미널에서 Ctrl+C를 누르세요.
+
+PowerShell에서 테스트와 빌드를 실행하려면:
+
+```powershell
+$env:PATH = (Join-Path (Get-Location) '.tools/node-v22-local') + ';' + $env:PATH
+npm.cmd test
+npm.cmd run build
+node tests/workerBuildProbe.mjs
+```

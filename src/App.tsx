@@ -49,13 +49,20 @@ export default function App() {
     return rank(a) - rank(b) || a.localeCompare(b, 'ko');
   }), [nodes]);
   const requiredNodeTypes = useMemo(() => new Map(nodes.map(n => [n.name, n.type])), [nodes]);
-  const requiredLocations = useMemo(() => new Map(nodes.filter(n => n.grade !== '일반' && n.grade !== 'None').map(node => [node.name, {
-    node,
-    boardNames: boards.filter(b => b.nodeList.some(n => n.name === node.name)).map(b => b.boardName),
-  }])), [nodes, boards]);
+  const requiredLocations = useMemo(() => {
+    const locations = new Map<string, { node: BoardNode; boardNames: string[] }>();
+    for (const board of boards) for (const node of board.nodeList) {
+      if (node.grade === '일반' || node.grade === 'None') continue;
+      let location = locations.get(node.name);
+      if (!location) { location = { node, boardNames: [] }; locations.set(node.name, location); }
+      location.node = node;
+      if (!location.boardNames.includes(board.boardName)) location.boardNames.push(board.boardName);
+    }
+    return locations;
+  }, [boards]);
   const activeKeys = useMemo(() => new Set(result?.activeKeys ?? []), [result]);
-  const activeNodes = boards.flatMap(b => b.nodeList.filter(n => n.type === 'Start' || activeKeys.has(nodeKey(b.boardKey, n.nodeId))));
-  const effects = summarizeEffects(activeNodes);
+  const activeNodes = useMemo(() => boards.flatMap(b => b.nodeList.filter(n => n.type === 'Start' || activeKeys.has(nodeKey(b.boardKey, n.nodeId)))), [boards, activeKeys]);
+  const effects = useMemo(() => summarizeEffects(activeNodes), [activeNodes]);
   const ordered = priority.length ? priority : commonNames;
   useLayoutEffect(() => {
     job.current.cancel(); setCalculating(false); setResult(null); setFailure(null);
@@ -83,11 +90,11 @@ export default function App() {
       }, boards);
   }
   function cancelCalculation() { job.current.cancel(); setCalculating(false); setFailure(null); }
-  const commonCounts = ordered.map(name => ({
+  const commonCounts = useMemo(() => ordered.map(name => ({
     name,
     total: nodes.filter(n => n.grade === '일반' && n.name === name).length,
     active: activeNodes.filter(n => n.grade === '일반' && n.name === name).length,
-  }));
+  })), [ordered, nodes, activeNodes]);
   const requiredNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === requiredGrade).map(n => n.name))].sort((a,b) => {
     const aIsSkill = requiredNodeTypes.get(a) === 'SkillLevel';
     const bIsSkill = requiredNodeTypes.get(b) === 'SkillLevel';

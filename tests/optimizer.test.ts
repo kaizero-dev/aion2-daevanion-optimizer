@@ -51,3 +51,15 @@ test('required connecting paths are reselected to obtain a higher-rank target', 
   assert.deepEqual(result.activeKeys, ['a:0', 'a:2', 'a:3']);
   assert.deepEqual(result.commonCounts, [1, 0]);
 });
+
+test('shared-budget ID ties stay deterministic across unequal boards supplied in reverse order', () => {
+  const n = (nodeId, row, col, name, type = 'Stat') => ({ nodeId, row, col, name, type, grade: type === 'Start' ? 'None' : 'Common', effectList: [] });
+  const graph = buildGraph([
+    { boardKey: 'z', boardName: '', nodeList: [n(100, 0, 0, '', 'Start'), n(2, 0, 1, 'high'), n(10, 1, 0, 'high'), n(3, 0, 2, 'low')] },
+    { boardKey: 'a', boardName: '', nodeList: [n(9, 0, 0, '', 'Start'), n(50, 0, 1, 'high')] },
+  ], { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+  const result = optimizeFrontier(graph, 2, new Set(), ['high', 'low'])!;
+  assert.deepEqual(result.activeKeys, ['a:50', 'a:9', 'z:10', 'z:100']);
+  assert.deepEqual(result.activeKeys, exhaustiveOracle(graph, 2, new Set(), ['high', 'low'])!.keys);
+  assert.deepEqual(result.commonCounts, [2, 0]);
+});

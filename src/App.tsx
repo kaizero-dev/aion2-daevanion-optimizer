@@ -9,8 +9,8 @@ import { createInitialSettings, defaultPriority, defaultRequiredNames } from './
 import { summarizeEffects } from './optimizationEffects';
 
 type Drag = { name: string; x: number; y: number; width: number; offsetX: number; offsetY: number };
-type Tooltip = { node: BoardNode; anchor: DOMRect; pointer?: { x: number; y: number }; boardNames?: string[] };
-function NodeTooltip({ node, anchor, pointer, boardNames }: Tooltip) {
+type Tooltip = { node: BoardNode; anchor: DOMRect; pointer?: { x: number; y: number }; boardNames?: string[]; boardName?: string };
+function NodeTooltip({ node, anchor, pointer, boardNames, boardName }: Tooltip) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0, ready: false });
   useLayoutEffect(() => {
@@ -22,7 +22,7 @@ function NodeTooltip({ node, anchor, pointer, boardNames }: Tooltip) {
     setPosition({ left, top, ready: true });
   }, [anchor, pointer, node, boardNames]);
   return createPortal(<div ref={ref} id="node-tooltip" role="tooltip" className={`node-tooltip ${node.grade.toLowerCase()}`} style={{ left: position.left, top: position.top, visibility: position.ready ? 'visible' : 'hidden' }}>
-    {!boardNames && <strong>{node.name.replace(/^스킬 레벨 상승 - /,'')}</strong>}<div className={`tooltip-description ${boardNames ? 'boards-only' : ''}`}>{boardNames ? <p>{boardNames.join(' · ')}</p> : node.type === 'Start' ? <p>항상 활성화되는 시작 노드</p> : node.effectList.filter(e => e.desc).map((effect, i) => <p key={i}>{effect.desc}</p>)}</div>
+    {!boardNames && <strong>{node.type === 'Start' ? `${boardName} - 시작` : node.name.replace(/^스킬 레벨 상승 - /,'')}</strong>}<div className={`tooltip-description ${boardNames ? 'boards-only' : ''}`}>{boardNames ? <p>{boardNames.join(' · ')}</p> : node.type === 'Start' ? <p>항상 활성화되는 시작 노드</p> : node.effectList.filter(e => e.desc).map((effect, i) => <p key={i}>{effect.desc}</p>)}</div>
   </div>, document.body);
 }
 export default function App() {
@@ -145,7 +145,7 @@ export default function App() {
         </aside>
         <section className="board-section" aria-label="데바니온 보드">
           <div className="panel board-panel"><div className="board-tabs" role="tablist" aria-label="데바니온 보드">{boards.map(b => <button role="tab" aria-selected={boardKey===b.boardKey} key={b.boardKey} onClick={() => { setBoardKey(b.boardKey); setTooltip(null); }} className={boardKey===b.boardKey ? 'active' : ''}>{b.boardName}</button>)}</div>
-            <div className="board-viewport" onScroll={() => setTooltip(null)}><div className="board-grid">{board.nodeList.filter(n => n.type !== 'None').map(n => <button key={n.nodeId} className={`board-node ${n.type==='Start' ? 'start-node' : ''}`} style={{gridRow:n.row,gridColumn:n.col}} aria-label={`${n.name}, ${n.type==='Start' ? '시작 노드' : gradeNames[n.grade as Grade]}`} aria-describedby={tooltip?.node.nodeId === n.nodeId ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ pointer: { x:e.clientX, y:e.clientY }, node:n, anchor:e.currentTarget.getBoundingClientRect() })} onMouseMove={e => { const pointer = { x:e.clientX, y:e.clientY }; setTooltip(prev => prev ? { ...prev, pointer } : prev); }} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ node:n, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if(e.key === 'Escape') setTooltip(null); }} onClick={e => setTooltip({ pointer: e.detail ? { x:e.clientX, y:e.clientY } : undefined, node:n, anchor:e.currentTarget.getBoundingClientRect() })}><img src={iconFor(n,classKey,activeKeys.has(nodeKey(board.boardKey,n.nodeId)))} alt="" draggable={false} /></button>)}</div></div>
+            <div className="board-viewport" onScroll={() => setTooltip(null)}><div className="board-grid">{board.nodeList.filter(n => n.type !== 'None').map(n => <button key={n.nodeId} className={`board-node ${n.type==='Start' ? 'start-node' : ''}`} style={{gridRow:n.row,gridColumn:n.col}} aria-label={`${n.name}, ${n.type==='Start' ? '시작 노드' : gradeNames[n.grade as Grade]}`} aria-describedby={tooltip?.node.nodeId === n.nodeId ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ pointer: { x:e.clientX, y:e.clientY }, node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })} onMouseMove={e => { const pointer = { x:e.clientX, y:e.clientY }; setTooltip(prev => prev ? { ...prev, pointer } : prev); }} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if(e.key === 'Escape') setTooltip(null); }} onClick={e => setTooltip({ pointer: e.detail ? { x:e.clientX, y:e.clientY } : undefined, node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })}><img src={iconFor(n,classKey,activeKeys.has(nodeKey(board.boardKey,n.nodeId)))} alt="" draggable={false} /></button>)}</div></div>
           </div>
         </section>
       </div>

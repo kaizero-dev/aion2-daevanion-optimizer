@@ -22,7 +22,7 @@ function NodeTooltip({ node, anchor, pointer, boardNames, boardName }: Tooltip) 
     setPosition({ left, top, ready: true });
   }, [anchor, pointer, node, boardNames]);
   return createPortal(<div ref={ref} id="node-tooltip" role="tooltip" className={`node-tooltip ${node.grade.toLowerCase()}`} style={{ left: position.left, top: position.top, visibility: position.ready ? 'visible' : 'hidden' }}>
-    {!boardNames && <strong>{node.type === 'Start' ? `${boardName} - 시작` : node.name.replace(/^스킬 레벨 상승 - /,'')}</strong>}<div className={`tooltip-description ${boardNames ? 'boards-only' : ''}`}>{boardNames ? <p>{boardNames.join(' · ')}</p> : node.type === 'Start' ? <p>항상 활성화되는 시작 노드</p> : node.effectList.filter(e => e.desc).map((effect, i) => <p key={i}>{effect.desc}</p>)}</div>
+    {!boardNames && <strong>{node.type === 'Start' ? `${boardName} - 시작` : node.name.replace(/^스킬 레벨 상승 - /,'')}</strong>}{(boardNames || node.type !== 'Start') && <div className={`tooltip-description ${boardNames ? 'boards-only' : ''}`}>{boardNames ? <p>{boardNames.join(' · ')}</p> : node.effectList.filter(e => e.desc).map((effect, i) => <p key={i}>{effect.desc}</p>)}</div>}
   </div>, document.body);
 }
 export default function App() {

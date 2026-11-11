@@ -1,10 +1,10 @@
-import { manifest, costs, getBoards } from './testData.ts';
+import { manifest, getBoards } from './testData.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
-import { buildGraph, prepareInput } from '../src/optimizationGraph.ts';
+
 function loadModule(file, mocks, globals = {}) {
   const source = readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8');
   const exports = {};
@@ -12,28 +12,27 @@ function loadModule(file, mocks, globals = {}) {
   runInNewContext(js, { exports, require: name => { if (!(name in mocks)) throw new Error(name); return mocks[name]; }, ...globals });
   return exports;
 }
-test('storage validates current data and preserves blank points and required selections at low budgets', () => {
-  const values = new Map();
-  const localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
-  const { readSettings, saveSettings, defaultPriority } = loadModule('settingsStorage.ts', {
-    './data': { classes: manifest.classes, costs, getBoards }, './optimizationGraph': { buildGraph, prepareInput },
+test('every initialization uses fresh defaults and ignores previously saved settings', () => {
+  let storageAccesses = 0;
+  const localStorage = new Proxy({}, { get() { storageAccesses++; throw new Error('Storage must not be accessed'); } });
+  const { createInitialSettings, defaultPriority } = loadModule('settingsDefaults.ts', {
+    './data': { getBoards },
   }, { localStorage });
-  const name = getBoards('assassin')[0].nodeList.find(n => n.grade === '유일').name;
-  const defaults = readSettings();
-  assert.equal(defaults.points, '837');
-  assert.deepEqual(new Set(defaults.required), new Set(getBoards('gladiator').flatMap(b => b.nodeList.filter(n => ['유일', '전승', '희귀'].includes(n.grade)).map(n => n.name))));
-  const saved = { classKey: 'assassin', points: '', required: [name], priority: [...defaultPriority].reverse() };
-  const normalize = value => JSON.parse(JSON.stringify(value));
-  saveSettings(saved);
-  assert.deepEqual(normalize(readSettings()), saved);
-  saveSettings({ ...saved, points: '0' });
-  assert.deepEqual(normalize(readSettings().required), [name]);
-  for (const patch of [{ points: '-1' }, { points: '1.5' }, { points: 'Infinity' }, { classKey: 'unknown' }, { required: ['deleted'] }, { priority: [] }]) {
-    saveSettings({ ...saved, ...patch });
-    assert.equal(readSettings().classKey, 'gladiator');
-  }
-  values.set('daevanion-settings-v1', '{broken');
-  assert.equal(readSettings().points, '837');
+  const first = createInitialSettings();
+  const expectedRequired = new Set(getBoards('gladiator').flatMap(b => b.nodeList.filter(n => ['유일', '전승', '희귀'].includes(n.grade)).map(n => n.name)));
+  assert.equal(first.classKey, 'gladiator');
+  assert.equal(first.points, '837');
+  assert.deepEqual(new Set(first.required), expectedRequired);
+  assert.deepEqual([...first.priority], [...defaultPriority]);
+  first.classKey = 'assassin'; first.points = '12'; first.required.length = 0; first.priority.reverse();
+  const second = createInitialSettings();
+  assert.equal(second.classKey, 'gladiator');
+  assert.equal(second.points, '837');
+  assert.deepEqual(new Set(second.required), expectedRequired);
+  assert.deepEqual([...second.priority], ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항']);
+  assert.notEqual(first.required, second.required);
+  assert.notEqual(first.priority, second.priority);
+  assert.equal(storageAccesses, 0);
 });
 test('failure feedback downloads only computation failure JSON with the failed settings', async () => {
   const events = []; let blob; let link;

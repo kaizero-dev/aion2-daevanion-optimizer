@@ -5,7 +5,7 @@ import { nodeKey } from './optimizationGraph';
 import { OptimizationJob } from './optimizationJob';
 import { reportOptimizationFailure, type OptimizationFailure, type OptimizationSettings } from './optimizationFeedback';
 import type { OptimizationResult } from './optimizer';
-import { readSettings, saveSettings, defaultPriority, defaultRequiredNames } from './settingsStorage';
+import { createInitialSettings, defaultPriority, defaultRequiredNames } from './settingsDefaults';
 import { summarizeEffects } from './optimizationEffects';
 
 type Drag = { name: string; x: number; y: number; width: number; offsetX: number; offsetY: number };
@@ -26,7 +26,7 @@ function NodeTooltip({ node, anchor, pointer, boardNames }: Tooltip) {
   </div>, document.body);
 }
 export default function App() {
-  const [initial] = useState(readSettings);
+  const [initial] = useState(createInitialSettings);
   const [classKey, setClassKey] = useState(initial.classKey);
   const [points, setPoints] = useState(initial.points);
   const [boardKey, setBoardKey] = useState('nezakan');
@@ -59,7 +59,6 @@ export default function App() {
   const ordered = priority.length ? priority : commonNames;
   useLayoutEffect(() => {
     job.current.cancel(); setCalculating(false); setResult(null); setFailure(null);
-    saveSettings({ classKey, points, required, priority: priority.length ? priority : commonNames });
   }, [classKey, points, required, priority, commonNames]);
   useLayoutEffect(() => {
     const modal = dialog.current!;

@@ -79,7 +79,7 @@ export default function App() {
   }
   return <div className="app-shell">
     <main>
-      <div className="page-heading"><div><div className="eyebrow">DAEVANION PLANNER</div><h1>데바니온 최적화</h1><p>필수 노드와 노드 우선순위를 설정하고, 최적화된 결과를 확인하세요.</p></div><div className="creator-credit"><strong>마몽[바바]</strong></div></div>
+      <div className="page-heading"><div><div className="eyebrow">DAEVANION PLANNER</div><h1>데바니온 최적화</h1><p>필수 노드와 노드 우선순위를 설정하고, 최적화된 결과를 확인하세요.</p></div><div className="creator-credit"><span>만든 사람</span><strong>마몽[바바]</strong></div></div>
       <div className="workspace">
         <aside className="settings">
           <section className="panel setup"><div className="section-title"><span className="step">01</span><h2>캐릭터 설정</h2></div><div className="setup-fields"><label>직업<select value={classKey} onChange={e => changeClass(e.target.value)}>{classes.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label><label>총 가용 포인트<div className="point-input"><input type="number" min="0" step="1" placeholder="포인트 입력" value={points} onChange={e => setPoints(e.target.value === '' ? '' : String(Math.max(0, Math.trunc(Number(e.target.value)))))} /><span>P</span></div></label></div></section>

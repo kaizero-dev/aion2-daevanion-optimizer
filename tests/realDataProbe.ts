@@ -1,17 +1,17 @@
-import { readFileSync } from 'node:fs';
+import { manifest, costs, getBoards } from './testData.ts';
+
 import { buildGraph, prepareInput } from '../src/optimizationGraph.ts';
 import { optimizeGraph } from '../src/optimizer.ts';
-const manifest = JSON.parse(readFileSync(new URL('../data/manifest.json', import.meta.url), 'utf8'));
 const basePriority = ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항'];
 for (const [index, c] of manifest.classes.entries()) {
-  const boards = c.boards.map(b => JSON.parse(readFileSync(new URL(`../data/boards/${c.key}/${b.key}.json`, import.meta.url), 'utf8')));
-  const graph = buildGraph(boards, manifest.grades);
-  const names = [...new Set(graph.nodes.filter(n => n.node.grade === 'Rare').map(n => n.node.name))];
+  const boards = getBoards(c.key);
+  const graph = buildGraph(boards, costs);
+  const names = [...new Set(graph.nodes.filter(n => n.node.grade === '희귀').map(n => n.node.name))];
   const requiredName = names.sort((a, b) => graph.nodes.filter(n => n.node.name === a).length - graph.nodes.filter(n => n.node.name === b).length)[0];
   const priority = [...basePriority.slice(index % 6), ...basePriority.slice(0, index % 6)];
   for (const scenario of [
     { budget: 100, requiredNames: [requiredName], priority },
-    { budget: 2000, requiredNames: [...new Set(graph.nodes.filter(n => ['Rare', 'Legend', 'Unique'].includes(n.node.grade)).map(n => n.node.name))], priority },
+    { budget: 2000, requiredNames: [...new Set(graph.nodes.filter(n => ['희귀', '전승', '유일'].includes(n.node.grade)).map(n => n.node.name))], priority },
   ]) {
     const prepared = prepareInput(graph, { classKey: c.key, availablePoints: scenario.budget, requiredNodeNames: scenario.requiredNames, commonNodePriority: scenario.priority }, manifest.classes.map(c => c.key));
     if (!prepared.ok) throw new Error(prepared.kind);

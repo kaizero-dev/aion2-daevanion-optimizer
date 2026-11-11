@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { manifest, costs, getBoards } from './testData.ts';
+
 import { buildGraph } from '../src/optimizationGraph.ts';
 import { optimizeGraph as optimizeFrontier } from '../src/optimizer.ts';
-const manifest = JSON.parse(readFileSync(new URL('../data/manifest.json', import.meta.url), 'utf8'));
 const c = manifest.classes[0];
-const boards = c.boards.map(b => JSON.parse(readFileSync(new URL(`../data/boards/${c.key}/${b.key}.json`, import.meta.url), 'utf8')));
-const graph = buildGraph(process.argv.includes('--one-board') ? boards.slice(0, 1) : boards, manifest.grades);
+const boards = getBoards(c.key);
+const graph = buildGraph(process.argv.includes('--one-board') ? boards.slice(0, 1) : boards, costs);
 for (const budget of [30, 100, 300, 1000]) {
   let maxStates = 0;
   const start = performance.now();

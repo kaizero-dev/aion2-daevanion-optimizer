@@ -20,7 +20,7 @@ try {
   assert.equal(zero.requestId, 1);
   assert.equal(zero.result.activeKeys.length, 5);
   assert.equal(zero.result.usedPoints, 0);
-  const name = boards[0].nodeList.find(n => n.grade === 'Unique').name;
+  const name = boards[0].nodeList.find(n => manifest.grades[n.grade] === 4).name;
   const failure = await request(worker, { requestId: 2, settings: { ...settings, requiredNodeNames: [name] }, boards });
   assert.equal(failure.failure, 'insufficient-points');
   const invalid = await request(worker, { requestId: 3, settings: { ...settings, classKey: 'invalid' }, boards });
@@ -30,11 +30,20 @@ try {
   assert.deepEqual(medium.result.commonCounts, [35, 8, 10, 10, 13, 9]);
   assert.equal(medium.result.usedPoints, 100);
   console.log(JSON.stringify({ builtWorker: asset, mediumMs: Math.round(performance.now() - start), status: 'passed' }));
+  const allRequired = [...new Set(boards.flatMap(board => board.nodeList.filter(node => manifest.grades[node.grade] > 1).map(node => node.name)))];
+  const defaults = await request(worker, { requestId: 5, settings: { ...settings, availablePoints: 837, requiredNodeNames: allRequired }, boards });
+  assert.ok(defaults.result, JSON.stringify(defaults));
+  assert.ok(defaults.result.usedPoints <= 837);
+  const active = new Set(defaults.result.activeKeys);
+  for (const board of boards) for (const node of board.nodeList) {
+    if (manifest.grades[node.grade] > 1) assert.ok(active.has(`${board.boardKey}:${node.nodeId}`));
+  }
+  console.log('Default 837P with all special nodes required: passed');
 } finally { await worker.terminate(); }
 const cancelled = new Worker(bridge, { eval: true });
 let received = false;
 cancelled.on('message', () => { received = true; });
-cancelled.postMessage({ requestId: 5, settings: { ...settings, availablePoints: 1000 }, boards });
+cancelled.postMessage({ requestId: 6, settings: { ...settings, availablePoints: 1000 }, boards });
 await new Promise(resolve => setTimeout(resolve, 100));
 await cancelled.terminate();
 assert.equal(received, false);

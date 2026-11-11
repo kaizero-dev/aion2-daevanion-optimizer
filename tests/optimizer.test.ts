@@ -10,9 +10,9 @@ test('frontier DP agrees with all-subset oracle on 400 seeded connected/disconne
   for (let trial = 0; trial < 400; trial++) {
     const boards = ['a', 'b'].map(boardKey => ({ boardKey, boardName: boardKey, nodeList: Array.from({ length: 6 }, (_, i) => ({
       nodeId: i, row: Math.floor(i / 3), col: i % 3, name: i === 0 ? '' : ['high', 'middle', 'low'][Math.floor(random() * 3)],
-      type: i === 0 ? 'Start' : random() < 0.1 ? 'None' : 'Stat', grade: i === 0 ? 'None' : random() < 0.2 ? 'Rare' : 'Common', effectList: [],
+      type: i === 0 ? 'Start' : random() < 0.1 ? 'None' : 'Stat', grade: i === 0 ? 'None' : random() < 0.2 ? '희귀' : 'Common', effectList: [],
     })) }));
-    const graph = buildGraph(boards, { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+    const graph = buildGraph(boards, { Common: 1, 희귀: 2, 전승: 3, 유일: 4 });
     const required = new Set(graph.nodes.flatMap((n, i) => n.cost > 0 && random() < 0.12 ? [i] : []));
     const budget = Math.floor(random() * 13);
     const oracle = exhaustiveOracle(graph, budget, required, ['high', 'middle', 'low']);
@@ -24,11 +24,11 @@ test('frontier DP agrees with all-subset oracle on 400 seeded connected/disconne
 
 test('point cost precedes special count, and special count breaks only equal-cost ties', () => {
   const n = (id, row, col, name, grade = 'Common', type = 'Stat') => ({ nodeId: id, row, col, name, grade, type, effectList: [] });
-  for (const grade of ['Rare', 'Legend']) {
-    const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [n(0, 0, 0, '', 'None', 'Start'), n(1, 0, 1, 'special', grade), n(2, 0, 2, 'high'), n(3, 1, 0, 'low'), n(4, 1, 1, 'low'), n(5, 1, 2, 'low'), n(6, 5, 5, 'high')] }], { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+  for (const grade of ['희귀', '전승']) {
+    const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [n(0, 0, 0, '', 'None', 'Start'), n(1, 0, 1, 'special', grade), n(2, 0, 2, 'high'), n(3, 1, 0, 'low'), n(4, 1, 1, 'low'), n(5, 1, 2, 'low'), n(6, 5, 5, 'high')] }], { Common: 1, 희귀: 2, 전승: 3, 유일: 4 });
     const result = optimizeFrontier(graph, 4, new Set(), ['high'])!;
-    assert.equal(result.usedPoints, grade === 'Rare' ? 3 : 4);
-    assert.equal(result.activeKeys.includes('a:1'), grade === 'Rare');
+    assert.equal(result.usedPoints, grade === '희귀' ? 3 : 4);
+    assert.equal(result.activeKeys.includes('a:1'), grade === '희귀');
     assert.equal(result.optimizedRanks, 1);
     assert.deepEqual(result.activeKeys, exhaustiveOracle(graph, 4, new Set(), ['high'])!.keys);
   }
@@ -36,7 +36,7 @@ test('point cost precedes special count, and special count breaks only equal-cos
 
 test('lower ranks improve after an incomplete upper rank without sacrificing its maximum', () => {
   const n = (id, row, col, name, grade = 'Common', type = 'Stat') => ({ nodeId: id, row, col, name, grade, type, effectList: [] });
-  const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [n(0, 0, 0, '', 'None', 'Start'), n(1, 0, 1, 'high'), n(2, 0, 2, 'third'), n(3, 0, 3, 'high'), n(4, 1, 0, 'second')] }], { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+  const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [n(0, 0, 0, '', 'None', 'Start'), n(1, 0, 1, 'high'), n(2, 0, 2, 'third'), n(3, 0, 3, 'high'), n(4, 1, 0, 'second')] }], { Common: 1, 희귀: 2, 전승: 3, 유일: 4 });
   const result = optimizeFrontier(graph, 2, new Set(), ['high', 'second', 'third'])!;
   assert.deepEqual(result.commonCounts, [1, 1, 0]);
   assert.deepEqual(result.activeKeys, ['a:0', 'a:1', 'a:4']);
@@ -46,7 +46,7 @@ test('lower ranks improve after an incomplete upper rank without sacrificing its
 
 test('required connecting paths are reselected to obtain a higher-rank target', () => {
   const n = (id, row, col, name, grade = 'Common', type = 'Stat') => ({ nodeId: id, row, col, name, grade, type, effectList: [] });
-  const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [n(0, 0, 0, '', 'None', 'Start'), n(1, 0, 1, 'low'), n(2, 1, 0, 'high'), n(3, 1, 1, 'required', 'Rare')] }], { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+  const graph = buildGraph([{ boardKey: 'a', boardName: '', nodeList: [n(0, 0, 0, '', 'None', 'Start'), n(1, 0, 1, 'low'), n(2, 1, 0, 'high'), n(3, 1, 1, 'required', '희귀')] }], { Common: 1, 희귀: 2, 전승: 3, 유일: 4 });
   const result = optimizeFrontier(graph, 3, new Set([3]), ['high', 'low'])!;
   assert.deepEqual(result.activeKeys, ['a:0', 'a:2', 'a:3']);
   assert.deepEqual(result.commonCounts, [1, 0]);
@@ -57,7 +57,7 @@ test('shared-budget ID ties stay deterministic across unequal boards supplied in
   const graph = buildGraph([
     { boardKey: 'z', boardName: '', nodeList: [n(100, 0, 0, '', 'Start'), n(2, 0, 1, 'high'), n(10, 1, 0, 'high'), n(3, 0, 2, 'low')] },
     { boardKey: 'a', boardName: '', nodeList: [n(9, 0, 0, '', 'Start'), n(50, 0, 1, 'high')] },
-  ], { Common: 1, Rare: 2, Legend: 3, Unique: 4 });
+  ], { Common: 1, 희귀: 2, 전승: 3, 유일: 4 });
   const result = optimizeFrontier(graph, 2, new Set(), ['high', 'low'])!;
   assert.deepEqual(result.activeKeys, ['a:50', 'a:9', 'z:10', 'z:100']);
   assert.deepEqual(result.activeKeys, exhaustiveOracle(graph, 2, new Set(), ['high', 'low'])!.keys);

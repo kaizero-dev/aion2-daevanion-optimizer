@@ -1,6 +1,7 @@
+import { manifest, costs, getBoards } from './testData.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+
 import { OptimizationJob } from '../src/optimizationJob.ts';
 import { summarizeEffects } from '../src/optimizationEffects.ts';
 import { buildGraph, prepareInput } from '../src/optimizationGraph.ts';
@@ -62,11 +63,10 @@ test('effects aggregate actual numeric effectList values, percentages and skill 
 });
 
 test('all nine classes: real data zero/small budgets, changed priorities and required-node cost failure', async () => {
-  const manifest = JSON.parse(readFileSync(new URL('../data/manifest.json', import.meta.url), 'utf8'));
   const measurements = [];
   for (const c of manifest.classes) {
-    const boards = c.boards.map(b => JSON.parse(readFileSync(new URL(`../data/boards/${c.key}/${b.key}.json`, import.meta.url), 'utf8')));
-    const graph = buildGraph(boards, manifest.grades);
+    const boards = getBoards(c.key);
+    const graph = buildGraph(boards, costs);
     for (const budget of [0, 3]) {
       const order = budget ? [...priority].reverse() : priority;
       const start = performance.now();
@@ -76,7 +76,7 @@ test('all nine classes: real data zero/small budgets, changed priorities and req
       if (!budget) assert.equal(result.activeKeys.length, 5);
       measurements.push({ classKey: c.key, budget, used: result.usedPoints, ms: Math.round(performance.now() - start) });
     }
-    const special = graph.nodes.find(n => n.node.grade === 'Unique')!.node.name;
+    const special = graph.nodes.find(n => n.node.grade === '유일')!.node.name;
     assert.deepEqual(prepareInput(graph, { ...settings, classKey: c.key, availablePoints: 0, requiredNodeNames: [special] }, manifest.classes.map(c => c.key)), { ok: false, kind: 'insufficient-points' });
   }
   console.log('Real-data integration measurements:', JSON.stringify(measurements));

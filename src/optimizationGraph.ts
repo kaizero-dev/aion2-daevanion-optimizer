@@ -82,14 +82,14 @@ export type PreparedInput = { ok: true; required: Set<number>; settings: Optimiz
 export function prepareInput(graph: OptimizationGraph, settings: OptimizationSettings, classKeys: readonly string[]): PreparedInput {
   const priority = settings.commonNodePriority;
   const names = settings.requiredNodeNames;
-  const specialNames = new Set(graph.nodes.filter(n => ['Rare', 'Legend', 'Unique'].includes(n.node.grade)).map(n => n.node.name));
+  const specialNames = new Set(graph.nodes.filter(n => ['희귀', '전승', '유일'].includes(n.node.grade)).map(n => n.node.name));
   if (!classKeys.includes(settings.classKey) || !Number.isSafeInteger(settings.availablePoints) || settings.availablePoints < 0
     || !Array.isArray(priority) || graph.commonNames.length !== 6 || priority.length !== 6 || new Set(priority).size !== 6
     || priority.some(name => !graph.commonNames.includes(name)) || !Array.isArray(names)
     || new Set(names).size !== names.length || names.some(name => !specialNames.has(name))) {
     return { ok: false, kind: 'optimization-failed' };
   }
-  const required = new Set(graph.nodes.flatMap((n, i) => ['Rare', 'Legend', 'Unique'].includes(n.node.grade) && names.includes(n.node.name) ? [i] : []));
+  const required = new Set(graph.nodes.flatMap((n, i) => ['희귀', '전승', '유일'].includes(n.node.grade) && names.includes(n.node.name) ? [i] : []));
   if ([...required].some(i => !graph.reachable.has(i))) return { ok: false, kind: 'unreachable-required' };
   if ([...required].reduce((sum, i) => sum + graph.nodes[i].cost, 0) > settings.availablePoints) return { ok: false, kind: 'insufficient-points' };
   return { ok: true, required, settings: { ...settings, requiredNodeNames: [...names], commonNodePriority: [...priority] } };

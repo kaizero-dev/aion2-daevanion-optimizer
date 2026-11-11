@@ -1,12 +1,11 @@
 import manifest from '../data/manifest.json';
+import { createGradeAdapter, type Board, type BoardNode, type Grade, type SourceBoard } from './grades';
+export type { Board, BoardNode, Grade } from './grades';
+export { gradeNames, specialGrades } from './grades';
 
-export type Grade = 'Common' | 'Rare' | 'Legend' | 'Unique';
-export interface BoardNode {
-  nodeId: number; row: number; col: number; name: string;
-  grade: Grade | 'None'; type: string; effectList: { desc: string }[];
-}
-export interface Board { boardKey: string; boardName: string; nodeList: BoardNode[] }
-const modules = import.meta.glob<Board>('../data/boards/*/*.json', { eager: true, import: 'default' });
+const adapter = createGradeAdapter(manifest.grades);
+const sourceModules = import.meta.glob<SourceBoard>('../data/boards/*/*.json', { eager: true, import: 'default' });
+const modules = Object.fromEntries(Object.entries(sourceModules).map(([path, board]) => [path, adapter.normalizeBoard(board)]));
 const icons = import.meta.glob<string>(['../assets/*.png', '!../assets/board_icon_start_*.png'], { eager: true, query: '?url', import: 'default' });
 // Embed start icons so switching classes never starts a new image download.
 const startIcons = import.meta.glob<string>('../assets/board_icon_start_*.png', { eager: true, query: '?inline', import: 'default' });
@@ -21,12 +20,11 @@ export function preloadStartIcons() {
   }
 }
 export const classes = manifest.classes;
-export const gradeNames: Record<Grade, string> = { Common: 'Common', Rare: 'Rare', Legend: 'Legend', Unique: 'Unique' };
-export const costs = manifest.grades;
+export const costs = adapter.costs;
 export function getBoards(classKey: string): Board[] {
   return classes.find(c => c.key === classKey)!.boards.map(b => modules[`../data/boards/${classKey}/${b.key}.json`]);
 }
 export function iconFor(node: BoardNode, classKey: string, active = false) {
-  const name = node.type === 'Start' ? `start_${classKey}` : `${node.grade.toLowerCase()}${active ? '_open' : ''}`;
+  const name = node.type === 'Start' ? `start_${classKey}` : `${adapter.sourceGrade(node.grade as Grade).toLowerCase()}${active ? '_open' : ''}`;
   return (node.type === 'Start' ? startIcons : icons)[`../assets/board_icon_${name}.png`];
 }

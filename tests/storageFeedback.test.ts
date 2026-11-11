@@ -1,11 +1,10 @@
+import { manifest, costs, getBoards } from './testData.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { buildGraph, prepareInput } from '../src/optimizationGraph.ts';
-const manifest = JSON.parse(readFileSync(new URL('../data/manifest.json', import.meta.url), 'utf8'));
-const getBoards = key => manifest.classes.find(c => c.key === key).boards.map(b => JSON.parse(readFileSync(new URL(`../data/boards/${key}/${b.key}.json`, import.meta.url), 'utf8')));
 function loadModule(file, mocks, globals = {}) {
   const source = readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8');
   const exports = {};
@@ -17,9 +16,12 @@ test('storage validates current data and preserves blank points and required sel
   const values = new Map();
   const localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
   const { readSettings, saveSettings, defaultPriority } = loadModule('settingsStorage.ts', {
-    './data': { classes: manifest.classes, costs: manifest.grades, getBoards }, './optimizationGraph': { buildGraph, prepareInput },
+    './data': { classes: manifest.classes, costs, getBoards }, './optimizationGraph': { buildGraph, prepareInput },
   }, { localStorage });
-  const name = getBoards('assassin')[0].nodeList.find(n => n.grade === 'Unique').name;
+  const name = getBoards('assassin')[0].nodeList.find(n => n.grade === '유일').name;
+  const defaults = readSettings();
+  assert.equal(defaults.points, '837');
+  assert.deepEqual(new Set(defaults.required), new Set(getBoards('gladiator').flatMap(b => b.nodeList.filter(n => ['유일', '전승', '희귀'].includes(n.grade)).map(n => n.name))));
   const saved = { classKey: 'assassin', points: '', required: [name], priority: [...defaultPriority].reverse() };
   const normalize = value => JSON.parse(JSON.stringify(value));
   saveSettings(saved);
@@ -31,7 +33,7 @@ test('storage validates current data and preserves blank points and required sel
     assert.equal(readSettings().classKey, 'gladiator');
   }
   values.set('daevanion-settings-v1', '{broken');
-  assert.equal(readSettings().points, '');
+  assert.equal(readSettings().points, '837');
 });
 test('failure feedback downloads only computation failure JSON with the failed settings', async () => {
   const events = []; let blob; let link;

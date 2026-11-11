@@ -152,7 +152,7 @@
 - 최근 빌드 기준 메인 JS는 약 3MB, gzip 약 549KB다. 45개 보드 eager import와 시작 아이콘 포함으로 Vite 청크 크기 경고가 있다. 빌드 실패는 아니며, 초기 다운로드 크기와 직업 전환 속도 사이의 현재 선택이다.
 - Node.js가 현재 PowerShell PATH에 없어서 `.tools/node-v22.16.0-win-x64/`에 로컬 런타임을 마련했다. `.tools/`, `node_modules/`, `dist/`는 Git에서 제외된다. 새 세션은 사용 가능한 Node/npm과 기존 의존성을 먼저 확인하고 이미 준비된 환경을 불필요하게 재설치하지 않는다.
 - 현재 환경에서 실행하려면 `$env:PATH = (Join-Path (Get-Location) '.tools/node-v22.16.0-win-x64') + ';' + $env:PATH` 설정 후 `npm.cmd run build`를 사용할 수 있다. 다른 환경에서는 Node 22와 표준 npm 명령을 사용한다.
-- 저장소: `git@github.com:kaizero-dev/aion2-daevanion-optimization.git`, 브랜치 `main`.
+- 저장소: `git@github.com:kaizero-dev/aion2-daevanion-optimizer.git`, 브랜치 `main`.
 - Cloudflare Pages 설정: 빌드 `npm run build`, 출력 `dist`, Node 22 (`.node-version`). 사용자 계정의 기존 자동배포 경로를 유지하고 별도 Sites 호스팅을 만들지 않는다.
 - **실제 배포 화면은 사용자가 직접 확인한다. 에이전트에게 URL은 필요 없고 요청하지 않는다.** 이 세션에서 에이전트가 배포 화면을 검증한 것으로 기록하지 않는다.
 
@@ -181,7 +181,7 @@
 - 일반 노드 활성 현황은 사용자 지정 우선순위를 따라 정렬하며 표의 헤더 없이 본문만 표시한다.
 - 페이지 제목은 `데바니온 최적화`, 설명은 `필수 노드와 노드 우선순위를 설정하고, 최적화된 결과를 확인하세요.`다.
 - 캐릭터 설정 / 필수 노드 지정 / 일반 노드 우선순위 패널과 `최적화 계산` 버튼을 유지한다. 제작자 표기 크기는 확대 전의 11px다.
-- GitHub 아이콘은 본문 영역을 벗어나지 않도록 `page-heading` 내부 우측 상단, 닉네임 위에 우측 정렬로 배치하며 `https://github.com/kaizero-dev/aion2-daevanion-optimization` 저장소를 새 탭으로 연다.
+- GitHub 아이콘은 본문 영역을 벗어나지 않도록 `page-heading` 내부 우측 상단, 닉네임 위에 우측 정렬로 배치하며 `https://github.com/kaizero-dev/aion2-daevanion-optimizer` 저장소를 새 탭으로 연다.
 - 상단 메뉴, 보드 상단의 직업·타이틀 영역, 보드 번호, 확대·축소 도구, 보드 범례·하단 상세 영역·장식 문구는 삭제 완료했다. 다시 추가하지 않는다.
 - 필수 노드의 선택 개수, 등급별 `nP / 노드` 라벨과 설명 문구, 일반 우선순위 드래그 안내, 푸터 왼쪽 영문명은 삭제 완료했다.
 - 총 적용 효과의 점선 빈 영역은 데스크톱에서 오른쪽 활성 현황 표와 하단이 맞도록 늘어나며, 모바일에서는 세로로 배치한다.

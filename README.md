@@ -2,6 +2,8 @@
 
 React + TypeScript + Vite 기반 프론트엔드입니다.
 
+저장소: [kaizero-dev/aion2-daevanion-optimizer](https://github.com/kaizero-dev/aion2-daevanion-optimizer)
+
 ## 개발
 
 Node.js 22 이상에서 `npm install` 후 `npm run dev`로 실행합니다.

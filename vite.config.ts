@@ -1,20 +1,35 @@
 import { defineConfig } from 'vite';
 import type { SourceBoard } from './src/grades';
+// @ts-expect-error Node is available in Vite's config runtime; this app has no Node typings.
+import { readFileSync } from 'node:fs';
+import manifest from './data/manifest.json';
+import { packBoards } from './src/boardPacking';
 
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        // Keep embedded, eagerly available icons cached across app/data updates.
+        manualChunks(id) {
+          if (/\/assets\/board_icon_start_[^/]+\.webp\?/.test(id)) return 'start-icons';
+        },
+      },
+    },
+  },
   plugins: [{
-    name: 'board-runtime-fields',
-    enforce: 'pre',
-    transform(source, id) {
-      if (!/\/data\/boards\/[^/]+\/[^/]+\.json$/.test(id)) return;
-      const board: SourceBoard = JSON.parse(source);
-      // Keep source files intact; ship only fields consumed by the app and Worker.
-      return { code: JSON.stringify({
-        boardKey: board.boardKey,
-        boardName: board.boardName,
-        nodeList: board.nodeList.map(({ nodeId, row, col, name, grade, type, effectList }) =>
-          ({ nodeId, row, col, name, grade, type, effectList })),
-      }), map: null };
+    name: 'packed-boards',
+    resolveId(id) {
+      if (id === 'virtual:packed-boards') return '\0virtual:packed-boards';
+    },
+    load(id) {
+      if (id !== '\0virtual:packed-boards') return;
+      const boards: Record<string, SourceBoard> = {};
+      for (const character of manifest.classes) for (const board of character.boards) {
+        const path = new URL(`./data/boards/${character.key}/${board.key}.json`, import.meta.url);
+        this.addWatchFile(decodeURIComponent(path.pathname).replace(/^\/([A-Za-z]:)/, '$1'));
+        boards[`${character.key}/${board.key}`] = JSON.parse(readFileSync(path, 'utf8'));
+      }
+      return `export default ${JSON.stringify(packBoards(boards))};`;
     },
   }],
 });

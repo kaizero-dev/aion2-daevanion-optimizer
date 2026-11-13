@@ -61,6 +61,10 @@ export default function App() {
     return locations;
   }, [boards]);
   const activeKeys = useMemo(() => new Set(result?.activeKeys ?? []), [result]);
+  const boardUsedPoints = useMemo(() => new Map(boards.map(b => [b.boardKey,
+    b.nodeList.reduce((sum, node) => node.type !== 'None' && node.type !== 'Start' && activeKeys.has(nodeKey(b.boardKey, node.nodeId))
+      ? sum + costs[node.grade as Grade] : sum, 0),
+  ])), [boards, activeKeys]);
   const remainingBoardCost = board.nodeList.reduce((sum, node) =>
     node.type === 'None' || node.type === 'Start' || activeKeys.has(nodeKey(board.boardKey, node.nodeId))
       ? sum : sum + costs[node.grade as Grade], 0);
@@ -147,15 +151,15 @@ export default function App() {
           <button className="calculate" type="button" ref={calculateButton} onClick={calculate}>최적화 계산<span>→</span></button>
         </aside>
         <section className="board-section" aria-label="데바니온 보드">
-          <div className="panel board-panel"><div className="board-tabs" role="tablist" aria-label="데바니온 보드">{boards.map(b => <button role="tab" aria-selected={boardKey===b.boardKey} key={b.boardKey} onClick={() => { setBoardKey(b.boardKey); setTooltip(null); }} className={boardKey===b.boardKey ? 'active' : ''}>{b.boardName}</button>)}</div>
-            <div className="board-completion-cost" title={result ? '이 보드의 미습득 노드를 모두 습득하는 데 필요한 추가 포인트' : '이 보드의 모든 노드를 습득하는 데 필요한 총 포인트'}><span>{result ? '남은 필요 포인트' : '총 필요 포인트'} <strong>{remainingBoardCost.toLocaleString()}P</strong></span></div>
+          <div className="panel board-panel"><div className="board-tabs" role="tablist" aria-label="데바니온 보드">{boards.map(b => <button role="tab" aria-selected={boardKey===b.boardKey} key={b.boardKey} onClick={() => { setBoardKey(b.boardKey); setTooltip(null); }} className={boardKey===b.boardKey ? 'active' : ''}><span>{b.boardName}</span><span className="board-used-points">사용 {result ? `${boardUsedPoints.get(b.boardKey)!.toLocaleString()}P` : '—'}</span></button>)}</div>
+            <div className="board-completion-cost" title={result ? '이 보드의 미습득 노드를 모두 습득하는 데 필요한 추가 포인트' : '이 보드의 모든 노드를 습득하는 데 필요한 총 포인트'}><span>{result ? '전체 습득까지' : '총 필요 포인트'} <strong>{remainingBoardCost.toLocaleString()}P</strong></span></div>
             <div className="board-viewport" onScroll={() => setTooltip(null)}><div className="board-grid">{board.nodeList.filter(n => n.type !== 'None').map(n => <button key={n.nodeId} className={`board-node ${n.type==='Start' ? 'start-node' : ''}`} style={{gridRow:n.row,gridColumn:n.col}} aria-label={`${n.name}, ${n.type==='Start' ? '시작 노드' : gradeNames[n.grade as Grade]}`} aria-describedby={tooltip?.node.nodeId === n.nodeId ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ pointer: { x:e.clientX, y:e.clientY }, node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })} onMouseMove={e => { const pointer = { x:e.clientX, y:e.clientY }; setTooltip(prev => prev ? { ...prev, pointer } : prev); }} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if(e.key === 'Escape') setTooltip(null); }} onClick={e => setTooltip({ pointer: e.detail ? { x:e.clientX, y:e.clientY } : undefined, node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })}><img src={iconFor(n,classKey,activeKeys.has(nodeKey(board.boardKey,n.nodeId)))} alt="" draggable={false} /></button>)}</div></div>
           </div>
         </section>
       </div>
       <hr className="workspace-divider" />
       <section className="panel result-summary" aria-labelledby="summary-title">
-        <div className="summary-heading"><h2 id="summary-title">최적화 결과 요약</h2><span>5개 보드 전체 합산</span></div>
+        <div className="summary-heading"><h2 id="summary-title">최적화 결과 요약</h2><div className="point-summary"><span>5개 보드 전체 합산</span><div>사용 <strong>{result ? result.usedPoints.toLocaleString() : '—'}</strong> / {Number(points).toLocaleString()}P<span className={`remaining-points ${result && Number(points) > result.usedPoints ? 'has-remaining' : ''}`}>잔여 <strong>{result ? `${(Number(points) - result.usedPoints).toLocaleString()}P` : '—'}</strong></span></div></div></div>
         <div className="summary-columns">
           <section className="effects-summary"><h3>총 적용 효과</h3>{effects.length ? <ul className="applied-effects">{effects.map((effect, index) => <li key={`${index}:${effect}`}>{effect}</li>)}</ul> : <div className="empty-effects"><span aria-hidden="true">◇</span><p>아직 적용된 효과가 없습니다.</p></div>}</section>
           <section className="counts-summary"><h3>일반 노드 활성 현황</h3><table aria-label="일반 노드별 활성 개수와 전체 개수"><tbody>{commonCounts.map(({name,active,total}) => <tr key={name}><th scope="row">{name}</th><td aria-label={`활성 ${active}개`}>{active}</td><td aria-label={`전체 ${total}개`}>{total}</td></tr>)}</tbody></table></section>

@@ -65,10 +65,9 @@ export default function App() {
     b.nodeList.reduce((sum, node) => node.type !== 'None' && node.type !== 'Start' && activeKeys.has(nodeKey(b.boardKey, node.nodeId))
       ? sum + costs[node.grade as Grade] : sum, 0),
   ])), [boards, activeKeys]);
-  const totalBoardCost = board.nodeList.reduce((sum, node) =>
+  const boardTotalCosts = useMemo(() => new Map(boards.map(b => [b.boardKey, b.nodeList.reduce((sum, node) =>
     node.type === 'None' || node.type === 'Start'
-      ? sum : sum + costs[node.grade as Grade], 0);
-  const currentBoardCost = boardUsedPoints.get(board.boardKey)!;
+      ? sum : sum + costs[node.grade as Grade], 0)])), [boards]);
   const activeNodes = useMemo(() => boards.flatMap(b => b.nodeList.filter(n => n.type === 'Start' || activeKeys.has(nodeKey(b.boardKey, n.nodeId)))), [boards, activeKeys]);
   const effects = useMemo(() => summarizeEffects(activeNodes), [activeNodes]);
   const ordered = priority.length ? priority : commonNames;
@@ -153,7 +152,7 @@ export default function App() {
         </aside>
         <section className="board-section" aria-label="데바니온 보드">
           <div className="panel board-panel"><div className="board-tabs" role="tablist" aria-label="데바니온 보드">{boards.map(b => <button role="tab" aria-selected={boardKey===b.boardKey} key={b.boardKey} onClick={() => { setBoardKey(b.boardKey); setTooltip(null); }} className={boardKey===b.boardKey ? 'active' : ''}>{b.boardName}</button>)}</div>
-            <div className="board-completion-cost"><dl>{result ? <><div><dt>현재 사용</dt><dd>{currentBoardCost.toLocaleString()}P</dd></div><div><dt>추가 필요</dt><dd>{(totalBoardCost - currentBoardCost).toLocaleString()}P</dd></div></> : <div><dt>전체 비용</dt><dd>{totalBoardCost.toLocaleString()}P</dd></div>}</dl></div>
+            <div className="board-point-overview" aria-label="보드별 포인트 현황">{boards.map(b => <dl key={b.boardKey} aria-label={`${b.boardName} 포인트 현황`} className={boardKey === b.boardKey ? 'selected-board-points' : ''}><div><dt>{result ? '현재 사용' : '전체 비용'}</dt><dd>{(result ? boardUsedPoints.get(b.boardKey)! : boardTotalCosts.get(b.boardKey)!).toLocaleString()}P</dd></div><div className={result ? '' : 'point-placeholder'} aria-hidden={!result}><dt>추가 필요</dt><dd>{(boardTotalCosts.get(b.boardKey)! - boardUsedPoints.get(b.boardKey)!).toLocaleString()}P</dd></div></dl>)}</div>
             <div className="board-viewport" onScroll={() => setTooltip(null)}><div className="board-grid">{board.nodeList.filter(n => n.type !== 'None').map(n => <button key={n.nodeId} className={`board-node ${n.type==='Start' ? 'start-node' : ''}`} style={{gridRow:n.row,gridColumn:n.col}} aria-label={`${n.name}, ${n.type==='Start' ? '시작 노드' : gradeNames[n.grade as Grade]}`} aria-describedby={tooltip?.node.nodeId === n.nodeId ? 'node-tooltip' : undefined} onMouseEnter={e => setTooltip({ pointer: { x:e.clientX, y:e.clientY }, node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })} onMouseMove={e => { const pointer = { x:e.clientX, y:e.clientY }; setTooltip(prev => prev ? { ...prev, pointer } : prev); }} onMouseLeave={() => setTooltip(null)} onFocus={e => setTooltip({ node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })} onBlur={() => setTooltip(null)} onKeyDown={e => { if(e.key === 'Escape') setTooltip(null); }} onClick={e => setTooltip({ pointer: e.detail ? { x:e.clientX, y:e.clientY } : undefined, node:n, boardName:board.boardName, anchor:e.currentTarget.getBoundingClientRect() })}><img src={iconFor(n,classKey,activeKeys.has(nodeKey(board.boardKey,n.nodeId)))} alt="" draggable={false} /></button>)}</div></div>
           </div>
         </section>

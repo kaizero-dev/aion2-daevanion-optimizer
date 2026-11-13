@@ -159,10 +159,10 @@ export default function App() {
       </div>
       <hr className="workspace-divider" />
       <section className="panel result-summary" aria-labelledby="summary-title">
-        <div className="summary-heading"><h2 id="summary-title">최적화 결과 요약</h2>{result && <span className={`remaining-points ${Number(points) > result.usedPoints ? 'has-remaining' : ''}`}>잔여 <strong>{(Number(points) - result.usedPoints).toLocaleString()}P</strong></span>}</div>
+        <div className="summary-heading"><h2 id="summary-title">최적화 결과 요약</h2>{result && <span className={`remaining-points desktop-remaining-points ${Number(points) > result.usedPoints ? 'has-remaining' : ''}`}>잔여 <strong>{(Number(points) - result.usedPoints).toLocaleString()}P</strong></span>}</div>
         <div className="summary-columns">
           <section className="effects-summary"><h3>총 적용 효과</h3>{effects.length ? <ul className="applied-effects">{effects.map((effect, index) => <li key={`${index}:${effect}`}>{effect}</li>)}</ul> : <div className="empty-effects"><span aria-hidden="true">◇</span><p>아직 적용된 효과가 없습니다.</p></div>}</section>
-          <section className="counts-summary"><h3>일반 노드 습득 현황</h3><table aria-label="일반 노드별 활성 개수와 전체 개수"><tbody>{commonCounts.map(({name,active,total}) => <tr key={name}><th scope="row">{name}</th><td aria-label={`활성 ${active}개`}>{active}</td><td aria-label={`전체 ${total}개`}>{total}</td></tr>)}</tbody></table></section>
+          <section className="counts-summary"><div className="counts-heading"><h3>일반 노드 습득 현황</h3>{result && <span className={`remaining-points mobile-remaining-points ${Number(points) > result.usedPoints ? 'has-remaining' : ''}`}>잔여 <strong>{(Number(points) - result.usedPoints).toLocaleString()}P</strong></span>}</div><table aria-label="일반 노드별 활성 개수와 전체 개수"><tbody>{commonCounts.map(({name,active,total}) => <tr key={name}><th scope="row">{name}</th><td aria-label={`활성 ${active}개`}>{active}</td><td aria-label={`전체 ${total}개`}>{total}</td></tr>)}</tbody></table></section>
         </div>
       </section>
     </main><footer><span><time dateTime="2026-11-11">2026.11.11</time> 패치 기준</span></footer>

@@ -18,3 +18,5 @@
 .remaining-points{color:#7d8592;font-size:11px;font-variant-numeric:tabular-nums}.remaining-points strong{color:inherit;font-weight:600}.remaining-points.has-remaining strong{color:var(--accent)}
 
 .board-tabs{border-bottom:0}.board-points-strip{border-bottom:1px solid #32353b}
+
+.counts-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:17px}.counts-heading h3{margin:0}.mobile-remaining-points{display:none}@media(max-width:650px){.desktop-remaining-points{display:none}.mobile-remaining-points{display:inline;white-space:nowrap}}

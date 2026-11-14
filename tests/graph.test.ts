@@ -31,7 +31,7 @@ test('all 45 real boards: costs, adjacency, IDs, reachability, totals and valid 
   }
 });
 
-test('required names expand to four coordinates across three boards and snapshot arrays are copied', () => {
+test('required names expand to four coordinates across three boards', () => {
   const graph = buildGraph(boardsFor('assassin'), costs);
   const name = graph.nodes.find(n => n.node.name.includes('육감 극대화'))!.node.name;
   const input = settings({ requiredNodeNames: [name] });
@@ -39,10 +39,6 @@ test('required names expand to four coordinates across three boards and snapshot
   assert.ok(prepared.ok);
   assert.equal(prepared.required.size, 4);
   assert.equal(new Set([...prepared.required].map(i => graph.nodes[i].boardKey)).size, 3);
-  input.requiredNodeNames.length = 0;
-  input.commonNodePriority.reverse();
-  assert.deepEqual(prepared.settings.requiredNodeNames, [name]);
-  assert.deepEqual(prepared.settings.commonNodePriority, priority);
 });
 
 test('invalid budgets, classes, required names and incomplete priorities fail validation', () => {

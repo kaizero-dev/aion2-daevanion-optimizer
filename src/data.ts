@@ -3,7 +3,7 @@ import packedBoards from 'virtual:packed-boards';
 import { unpackBoard } from './boardPacking';
 import { createGradeAdapter, type Board, type BoardNode, type Grade } from './grades';
 export type { Board, BoardNode, Grade } from './grades';
-export { gradeNames, specialGrades } from './grades';
+export { gradeNames } from './grades';
 
 const adapter = createGradeAdapter(manifest.grades);
 const boardsByClass = new Map<string, Board[]>();
@@ -12,37 +12,22 @@ const openIcons = import.meta.glob<string>('../assets/board_icon_*_open.webp', {
 const inactiveIcons = import.meta.glob<string>(['../assets/board_icon_*.webp', '!../assets/board_icon_start_*.webp', '!../assets/board_icon_*_open.webp'], { eager: true, query: '?inline', import: 'default' });
 // Embed start icons so switching classes never starts a new image download.
 const startIcons = import.meta.glob<string>('../assets/board_icon_start_*.webp', { eager: true, query: '?inline', import: 'default' });
-const decodedStartIcons: HTMLImageElement[] = [];
-const decodedInactiveIcons: HTMLImageElement[] = [];
-const decodedOpenIcons: HTMLImageElement[] = [];
-export function preloadOpenIcons() {
-  if (decodedOpenIcons.length) return;
-  for (const src of Object.values(openIcons)) {
-    const image = new Image();
-    image.src = src;
-    decodedOpenIcons.push(image);
-    void image.decode().catch(() => {});
-  }
+function createIconPreloader(icons: Record<string, string>) {
+  const decoded: HTMLImageElement[] = [];
+  return () => {
+    if (decoded.length) return;
+    for (const src of Object.values(icons)) {
+      const image = new Image();
+      image.src = src;
+      decoded.push(image);
+      // Warm the decoded image cache without delaying the initial render.
+      void image.decode().catch(() => {});
+    }
+  };
 }
-export function preloadInactiveIcons() {
-  if (decodedInactiveIcons.length) return;
-  for (const src of Object.values(inactiveIcons)) {
-    const image = new Image();
-    image.src = src;
-    decodedInactiveIcons.push(image);
-    void image.decode().catch(() => {});
-  }
-}
-export function preloadStartIcons() {
-  if (decodedStartIcons.length) return;
-  for (const src of Object.values(startIcons)) {
-    const image = new Image();
-    image.src = src;
-    decodedStartIcons.push(image);
-    // Warm the decoded image cache without delaying the initial render.
-    void image.decode().catch(() => {});
-  }
-}
+export const preloadOpenIcons = createIconPreloader(openIcons);
+export const preloadInactiveIcons = createIconPreloader(inactiveIcons);
+export const preloadStartIcons = createIconPreloader(startIcons);
 export const classes = manifest.classes;
 export const costs = adapter.costs;
 export function getBoards(classKey: string): Board[] {

@@ -3,7 +3,6 @@ export interface OptimizationResult {
   activeKeys: string[];
   usedPoints: number;
   commonCounts: number[];
-  optimizedRanks: number;
 }
 
 export function verifySelection(graph: OptimizationGraph, selected: Set<number>, budget: number, required: Set<number>) {
@@ -145,7 +144,7 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
   if (directCost <= budget && connectedNodes(graph.nodes, graph.roots, direct).size === direct.size) {
     // Every objective is attained, or the zero budget admits only free roots.
     return { activeKeys: [...direct].map(i => graph.nodes[i].key).sort(), usedPoints: verifySelection(graph, direct, budget, required),
-      commonCounts: priority.map(name => [...direct].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length), optimizedRanks: priority.length };
+      commonCounts: priority.map(name => [...direct].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length) };
   }
   const boardSteps = [...new Set(graph.nodes.map(n => n.boardKey))].sort().map(key => makeSteps(graph, graph.nodes.flatMap((n, i) => n.boardKey === key ? [i] : [])));
   const roots = new Set(graph.roots);
@@ -164,8 +163,6 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
   }
   const limit = Math.min(budget, graph.nodes.reduce((sum, n) => sum + n.cost, 0));
   const forced = new Set([...roots, ...required]);
-  let winner: Candidate | undefined;
-  let usedPoints = 0;
   // Mixed-radix encoding is exactly equivalent to comparing the count vector
   // lexicographically: every earlier digit exceeds ALL possible later digits.
   // These data-derived place values are not arbitrary preference weights.
@@ -268,7 +265,8 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
     }
     globalEntries = combined;
   }
-  winner = undefined;
+  let winner: Candidate | undefined;
+  let usedPoints = 0;
   for (let cost = 0; cost < globalEntries.length; cost++) {
     const candidate = globalEntries[cost];
     if (candidate && (!winner || candidate.score > winner.score)) { winner = candidate; usedPoints = cost; }
@@ -279,5 +277,5 @@ export function optimizeGraph(graph: OptimizationGraph, budget: number, required
   const commonCounts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length);
   const verifiedObjective = commonCounts.reduce((sum, value, rank) => sum + value * placeValues.get(priority[rank])!, 0);
   if (verifiedObjective !== winner.score) throw new Error('Frontier achievement mismatch');
-  return { activeKeys: [...selected].map(i => graph.nodes[i].key).sort(), usedPoints, optimizedRanks: priority.length, commonCounts };
+  return { activeKeys: [...selected].map(i => graph.nodes[i].key).sort(), usedPoints, commonCounts };
 }

@@ -76,7 +76,7 @@ export function connectedNodes(nodes: GraphNode[], roots: number[], selected: Se
   return found;
 }
 
-export type PreparedInput = { ok: true; required: Set<number>; settings: OptimizationSettings }
+export type PreparedInput = { ok: true; required: Set<number> }
   | { ok: false; kind: 'optimization-failed' | 'unreachable-required' | 'insufficient-points' };
 
 export function prepareInput(graph: OptimizationGraph, settings: OptimizationSettings, classKeys: readonly string[]): PreparedInput {
@@ -92,5 +92,5 @@ export function prepareInput(graph: OptimizationGraph, settings: OptimizationSet
   const required = new Set(graph.nodes.flatMap((n, i) => ['희귀', '전승', '유일'].includes(n.node.grade) && names.includes(n.node.name) ? [i] : []));
   if ([...required].some(i => !graph.reachable.has(i))) return { ok: false, kind: 'unreachable-required' };
   if ([...required].reduce((sum, i) => sum + graph.nodes[i].cost, 0) > settings.availablePoints) return { ok: false, kind: 'insufficient-points' };
-  return { ok: true, required, settings: { ...settings, requiredNodeNames: [...names], commonNodePriority: [...priority] } };
+  return { ok: true, required };
 }

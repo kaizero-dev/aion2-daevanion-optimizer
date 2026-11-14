@@ -29,7 +29,6 @@ test('point cost precedes special count, and special count breaks only equal-cos
     const result = optimizeFrontier(graph, 4, new Set(), ['high'])!;
     assert.equal(result.usedPoints, grade === '희귀' ? 3 : 4);
     assert.equal(result.activeKeys.includes('a:1'), grade === '희귀');
-    assert.equal(result.optimizedRanks, 1);
     assert.deepEqual(result.activeKeys, exhaustiveOracle(graph, 4, new Set(), ['high'])!.keys);
   }
 });
@@ -41,7 +40,6 @@ test('lower ranks improve after an incomplete upper rank without sacrificing its
   assert.deepEqual(result.commonCounts, [1, 1, 0]);
   assert.deepEqual(result.activeKeys, ['a:0', 'a:1', 'a:4']);
   assert.equal(result.usedPoints, 2);
-  assert.equal(result.optimizedRanks, 3);
 });
 
 test('required connecting paths are reselected to obtain a higher-rank target', () => {

@@ -12,6 +12,7 @@ export default defineConfig({
         // Keep embedded, eagerly available icons cached across app/data updates.
         manualChunks(id) {
           if (/\/assets\/board_icon_start_[^/]+\.webp\?/.test(id)) return 'start-icons';
+          if (/\/assets\/board_icon_[^/]+\.webp\?inline$/.test(id)) return 'inactive-icons';
         },
       },
     },

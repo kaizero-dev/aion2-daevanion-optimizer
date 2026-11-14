@@ -7,7 +7,9 @@ export { gradeNames, specialGrades } from './grades';
 
 const adapter = createGradeAdapter(manifest.grades);
 const boardsByClass = new Map<string, Board[]>();
-const icons = import.meta.glob<string>(['../assets/board_icon_*.webp', '!../assets/board_icon_start_*.webp'], { eager: true, query: '?url', import: 'default' });
+const openIcons = import.meta.glob<string>('../assets/board_icon_*_open.webp', { eager: true, query: '?url', import: 'default' });
+// Embed inactive icons just like start icons to avoid separate image requests.
+const inactiveIcons = import.meta.glob<string>(['../assets/board_icon_*.webp', '!../assets/board_icon_start_*.webp', '!../assets/board_icon_*_open.webp'], { eager: true, query: '?inline', import: 'default' });
 // Embed start icons so switching classes never starts a new image download.
 const startIcons = import.meta.glob<string>('../assets/board_icon_start_*.webp', { eager: true, query: '?inline', import: 'default' });
 const decodedStartIcons: HTMLImageElement[] = [];
@@ -15,8 +17,7 @@ const decodedInactiveIcons: HTMLImageElement[] = [];
 const decodedOpenIcons: HTMLImageElement[] = [];
 export function preloadOpenIcons() {
   if (decodedOpenIcons.length) return;
-  for (const [path, src] of Object.entries(icons)) {
-    if (!path.endsWith('_open.webp')) continue;
+  for (const src of Object.values(openIcons)) {
     const image = new Image();
     image.src = src;
     decodedOpenIcons.push(image);
@@ -25,8 +26,7 @@ export function preloadOpenIcons() {
 }
 export function preloadInactiveIcons() {
   if (decodedInactiveIcons.length) return;
-  for (const [path, src] of Object.entries(icons)) {
-    if (path.endsWith('_open.webp')) continue;
+  for (const src of Object.values(inactiveIcons)) {
     const image = new Image();
     image.src = src;
     decodedInactiveIcons.push(image);
@@ -56,5 +56,5 @@ export function getBoards(classKey: string): Board[] {
 }
 export function iconFor(node: BoardNode, classKey: string, active = false) {
   const name = node.type === 'Start' ? `start_${classKey}` : `${adapter.sourceGrade(node.grade as Grade).toLowerCase()}${active ? '_open' : ''}`;
-  return (node.type === 'Start' ? startIcons : icons)[`../assets/board_icon_${name}.webp`];
+  return (node.type === 'Start' ? startIcons : active ? openIcons : inactiveIcons)[`../assets/board_icon_${name}.webp`];
 }

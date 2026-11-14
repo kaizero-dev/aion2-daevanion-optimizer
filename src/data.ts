@@ -11,6 +11,28 @@ const icons = import.meta.glob<string>(['../assets/board_icon_*.webp', '!../asse
 // Embed start icons so switching classes never starts a new image download.
 const startIcons = import.meta.glob<string>('../assets/board_icon_start_*.webp', { eager: true, query: '?inline', import: 'default' });
 const decodedStartIcons: HTMLImageElement[] = [];
+const decodedInactiveIcons: HTMLImageElement[] = [];
+const decodedOpenIcons: HTMLImageElement[] = [];
+export function preloadOpenIcons() {
+  if (decodedOpenIcons.length) return;
+  for (const [path, src] of Object.entries(icons)) {
+    if (!path.endsWith('_open.webp')) continue;
+    const image = new Image();
+    image.src = src;
+    decodedOpenIcons.push(image);
+    void image.decode().catch(() => {});
+  }
+}
+export function preloadInactiveIcons() {
+  if (decodedInactiveIcons.length) return;
+  for (const [path, src] of Object.entries(icons)) {
+    if (path.endsWith('_open.webp')) continue;
+    const image = new Image();
+    image.src = src;
+    decodedInactiveIcons.push(image);
+    void image.decode().catch(() => {});
+  }
+}
 export function preloadStartIcons() {
   if (decodedStartIcons.length) return;
   for (const src of Object.values(startIcons)) {

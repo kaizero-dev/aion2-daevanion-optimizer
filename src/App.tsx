@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { classes, costs, getBoards, gradeNames, iconFor, type BoardNode, type Grade } from './data';
+import { classes, costs, getBoards, gradeNames, iconFor, preloadOpenIcons, type BoardNode, type Grade } from './data';
 import { nodeKey } from './optimizationGraph';
 import { OptimizationJob } from './optimizationJob';
 import { reportOptimizationFailure, type OptimizationFailure, type OptimizationSettings } from './optimizationFeedback';
@@ -87,6 +87,7 @@ export default function App() {
     }
   }, [failure]);
   function calculate() {
+    preloadOpenIcons();
     setTooltip(null); setDrag(null); setResult(null); setFailure(null); setCalculating(true);
     job.current.start({ classKey, availablePoints: points === '' ? 0 : Number(points), requiredNodeNames: required, commonNodePriority: ordered },
       () => new Worker(new URL('./optimization.worker.ts', import.meta.url), { type: 'module' }),

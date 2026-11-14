@@ -7,6 +7,7 @@ import { reportOptimizationFailure, type OptimizationFailure, type OptimizationS
 import type { OptimizationResult } from './optimizer';
 import { createInitialSettings, defaultPriority, defaultRequiredNames } from './settingsDefaults';
 import { summarizeEffects } from './optimizationEffects';
+import { specialGrades } from './grades';
 
 type Drag = { name: string; x: number; y: number; width: number; offsetX: number; offsetY: number };
 type Tooltip = { node: BoardNode; anchor: DOMRect; pointer?: { x: number; y: number }; boardNames?: string[]; boardName?: string };
@@ -111,11 +112,15 @@ export default function App() {
   const job = useRef(new OptimizationJob());
   const dialog = useRef<HTMLDialogElement>(null);
   const calculateButton = useRef<HTMLButtonElement>(null);
+  const boardSection = useRef<HTMLElement>(null);
   const boards = useMemo(() => getBoards(classKey), [classKey]);
   const nodes = useMemo(() => boards.flatMap(b => b.nodeList), [boards]);
   const board = boards.find(b => b.boardKey === boardKey)!;
   const commonNames = useMemo(() => [...new Set(nodes.filter(n => n.grade === '일반').map(n => n.name))].sort((a,b) => {
-    const rank = (name: string) => defaultPriority.includes(name) ? defaultPriority.indexOf(name) : defaultPriority.length;
+    const rank = (name: string) => {
+      const index = defaultPriority.indexOf(name);
+      return index < 0 ? defaultPriority.length : index;
+    };
     return rank(a) - rank(b) || a.localeCompare(b, 'ko');
   }), [nodes]);
   const requiredNodeTypes = useMemo(() => new Map(nodes.map(n => [n.name, n.type])), [nodes]);
@@ -149,6 +154,9 @@ export default function App() {
     if (calculating && !modal.open) modal.showModal();
     else if (!calculating && modal.open) { modal.close(); calculateButton.current?.focus(); }
   }, [calculating]);
+  useLayoutEffect(() => {
+    if (result) boardSection.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+  }, [result]);
   useEffect(() => () => job.current.cancel(), []);
   useEffect(() => {
     if (failure && job.current.isCurrent(failure.id)) {
@@ -212,13 +220,13 @@ export default function App() {
         <aside className="settings">
           <section className="panel setup"><div className="section-title"><span className="step">01</span><h2>캐릭터 설정</h2></div><div className="setup-fields"><label>직업<select value={classKey} onChange={e => changeClass(e.target.value)}>{classes.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label><label>총 가용 포인트<div className="point-input"><input type="number" min="0" step="1" placeholder="포인트 입력" value={points} onChange={e => setPoints(e.target.value === '' ? '' : String(Math.max(0, Math.trunc(Number(e.target.value)))))} /><span>P</span></div></label></div></section>
           <section className="panel required-panel"><div className="section-title"><span className="step">02</span><h2>필수 노드 지정</h2></div>
-            <div className="grade-tabs" role="tablist" aria-label="필수 노드 등급">{(['유일','전승','희귀'] as Grade[]).map(grade => <button type="button" role="tab" id={`grade-${grade}`} aria-selected={requiredGrade === grade} aria-controls="required-options" className={`${grade} ${requiredGrade === grade ? 'active' : ''}`} key={grade} onClick={() => setRequiredGrade(grade)}><i className="grade-dot" />{grade}</button>)}</div>
+            <div className="grade-tabs" role="tablist" aria-label="필수 노드 등급">{specialGrades.map(grade => <button type="button" role="tab" id={`grade-${grade}`} aria-selected={requiredGrade === grade} aria-controls="required-options" className={`${grade} ${requiredGrade === grade ? 'active' : ''}`} key={grade} onClick={() => setRequiredGrade(grade)}><i className="grade-dot" />{grade}</button>)}</div>
             <RequiredNodeOptions names={requiredNames} grade={requiredGrade} required={required} locations={requiredLocations} nodeTypes={requiredNodeTypes} tooltip={tooltip} setTooltip={setTooltip} setRequired={setRequired} />
           </section>
           <section className="panel priority-panel"><div className="section-title"><span className="step">03</span><h2>일반 노드 우선순위</h2></div><div className="priority-list" onPointerDown={startDrag} onPointerMove={dragMove} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onLostPointerCapture={() => setDrag(null)}>{ordered.map((name,index) => <div className={`priority-item ${drag?.name === name ? 'dragging' : ''}`} key={name} data-priority={name}><span className="grip" aria-hidden="true">⠿</span><span className="rank">{index+1}</span><span className="priority-name">{name}</span><div className="order-controls"><button aria-label={`${name} 우선순위 올리기`} disabled={index===0} onClick={() => move(name,index-1)}>↑</button><button aria-label={`${name} 우선순위 내리기`} disabled={index===ordered.length-1} onClick={() => move(name,index+1)}>↓</button></div></div>)}</div><p className="field-note">상위 순위의 최대 개수를 유지하며 다음 순위를 최적화합니다.</p></section>
           <button className="calculate" type="button" ref={calculateButton} onClick={calculate}>최적화 계산<span>→</span></button>
         </aside>
-        <section className="board-section" aria-label="데바니온 보드">
+        <section ref={boardSection} className="board-section" aria-label="데바니온 보드">
           <div className="panel board-panel"><div className="board-tabs" role="tablist" aria-label="데바니온 보드">{boards.map(b => <button type="button" role="tab" aria-selected={boardKey===b.boardKey} key={b.boardKey} onClick={() => setBoardKey(b.boardKey)} className={boardKey===b.boardKey ? 'active' : ''}><span className="board-tab-name">{b.boardName}</span><span className="board-tab-points" aria-label={`${b.boardName} 포인트 현황`}>{result ? <><span>사용 <strong>{boardUsedPoints.get(b.boardKey)!.toLocaleString()}P</strong></span><span className="point-separator">·</span><span className="board-points-needed">필요 {(boardTotalCosts.get(b.boardKey)! - boardUsedPoints.get(b.boardKey)!).toLocaleString()}P</span></> : <span><strong>{boardTotalCosts.get(b.boardKey)!.toLocaleString()}P</strong></span>}</span></button>)}</div>
             <BoardGrid board={board} classKey={classKey} activeKeys={activeKeys} tooltip={tooltip} setTooltip={setTooltip} />
           </div>

@@ -24,6 +24,15 @@
 }
 body {
   margin:0;
+  -webkit-user-select:none;
+  user-select:none;
+}
+input,textarea {
+  -webkit-user-select:text;
+  user-select:text;
+}
+img {
+  -webkit-user-drag:none;
 }
 button,input,select {
   font:inherit;
@@ -53,6 +62,7 @@ main {
   align-items:flex-end;
   justify-content:space-between;
   margin-bottom:30px;
+  position:relative;
 }
 .eyebrow {
   font-size:10px;
@@ -465,6 +475,7 @@ footer {
   font-size:11px;
   white-space:nowrap;
   padding:10px 0 4px;
+  margin-left:auto;
 }
 .creator-credit strong {
   font-weight:600;
@@ -755,12 +766,6 @@ footer {
   .setup-fields {
     max-width:none;
   }
-}
-.page-heading {
-  position:relative;
-}
-.creator-credit {
-  margin-left:auto;
 }
 .github-link {
   position:absolute;

@@ -7,7 +7,7 @@ export { gradeNames, specialGrades } from './grades';
 
 const adapter = createGradeAdapter(manifest.grades);
 const boardsByClass = new Map<string, Board[]>();
-const icons = import.meta.glob<string>(['../assets/*.png', '!../assets/board_icon_start_*.png'], { eager: true, query: '?url', import: 'default' });
+const icons = import.meta.glob<string>(['../assets/board_icon_*.webp', '!../assets/board_icon_start_*.webp'], { eager: true, query: '?url', import: 'default' });
 // Embed start icons so switching classes never starts a new image download.
 const startIcons = import.meta.glob<string>('../assets/board_icon_start_*.webp', { eager: true, query: '?inline', import: 'default' });
 const decodedStartIcons: HTMLImageElement[] = [];
@@ -34,6 +34,5 @@ export function getBoards(classKey: string): Board[] {
 }
 export function iconFor(node: BoardNode, classKey: string, active = false) {
   const name = node.type === 'Start' ? `start_${classKey}` : `${adapter.sourceGrade(node.grade as Grade).toLowerCase()}${active ? '_open' : ''}`;
-  const extension = node.type === 'Start' ? 'webp' : 'png';
-  return (node.type === 'Start' ? startIcons : icons)[`../assets/board_icon_${name}.${extension}`];
+  return (node.type === 'Start' ? startIcons : icons)[`../assets/board_icon_${name}.webp`];
 }

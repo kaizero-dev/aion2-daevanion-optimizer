@@ -1,4 +1,5 @@
-import { manifest, getBoards } from './testData.ts';
+import { getBoards } from './testData.ts';
+import { isSpecialGrade, specialGrades } from '../src/grades.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -15,44 +16,60 @@ function loadModule(file, mocks, globals = {}) {
 test('every initialization uses fresh defaults and ignores previously saved settings', () => {
   let storageAccesses = 0;
   const localStorage = new Proxy({}, { get() { storageAccesses++; throw new Error('Storage must not be accessed'); } });
-  const { createInitialSettings, defaultPriority } = loadModule('settingsDefaults.ts', {
-    './data': { getBoards },
+  const { createInitialSettings, defaultPriority, getRequiredNodeOptions, requiredNodeSettings } = loadModule('settingsDefaults.ts', {
+    './data': { getBoards }, './grades': { isSpecialGrade, specialGrades },
   }, { localStorage });
   const first = createInitialSettings();
   const expectedRequired = new Set(getBoards('gladiator').flatMap(b => b.nodeList.filter(n => ['유일', '전승', '희귀'].includes(n.grade)).map(n => n.name)));
   assert.equal(first.classKey, 'gladiator');
   assert.equal(first.points, '837');
-  assert.deepEqual(new Set(first.required), expectedRequired);
+  assert.deepEqual(new Set(first.required.keys()), expectedRequired);
   assert.deepEqual([...first.priority], [...defaultPriority]);
-  first.classKey = 'assassin'; first.points = '12'; first.required.length = 0; first.priority.reverse();
+  const [all, partial, disabled] = new Set(getBoards('gladiator').flatMap(board =>
+    board.nodeList.filter(node => node.type === 'SkillLevel' && node.grade === '전승').map(node => node.name)));
+  first.required.set(partial, 2);
+  first.required.delete(disabled);
+  const { requiredNodeNames, requiredSkillCounts } = requiredNodeSettings(first.required);
+  assert.ok(requiredNodeNames.includes(all));
+  assert.ok(!requiredNodeNames.includes(partial) && !requiredNodeNames.includes(disabled));
+  assert.deepEqual(Object.entries(requiredSkillCounts), [[partial, 2]]);
+  first.classKey = 'assassin'; first.points = '12'; first.required.clear(); first.priority.reverse();
   const second = createInitialSettings();
   assert.equal(second.classKey, 'gladiator');
   assert.equal(second.points, '837');
-  assert.deepEqual(new Set(second.required), expectedRequired);
+  assert.deepEqual(new Set(second.required.keys()), expectedRequired);
   assert.deepEqual([...second.priority], ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항']);
   assert.notEqual(first.required, second.required);
   assert.notEqual(first.priority, second.priority);
+  const options = getRequiredNodeOptions('gladiator');
+  assert.equal(getRequiredNodeOptions('gladiator'), options);
+  assert.notEqual(getRequiredNodeOptions('assassin'), options);
+  const boards = getBoards('gladiator');
+  for (const [grade, entries] of options) {
+    const names = Array.from(entries, ({ node }) => node.name);
+    const expected = boards.flatMap(board => board.nodeList.filter(node => node.grade === grade));
+    expected.sort((a, b) => Number(a.type === 'SkillLevel') - Number(b.type === 'SkillLevel') || a.name.localeCompare(b.name, 'ko'));
+    assert.deepEqual(names, [...new Set(expected.map(node => node.name))]);
+    for (const { node, boardNames } of entries) {
+      const matching = boards.filter(board => board.nodeList.some(n => n.name === node.name && n.grade === grade));
+      assert.deepEqual([...boardNames], matching.map(board => board.boardName));
+    }
+  }
   assert.equal(storageAccesses, 0);
 });
-test('failure feedback downloads only computation failure JSON with the failed settings', async () => {
-  const events = []; let blob; let link;
-  const { reportOptimizationFailure } = loadModule('optimizationFeedback.ts', { '../data/manifest.json': { default: manifest } }, {
-    window: { alert: message => events.push(message) }, Blob,
-    document: { createElement: () => (link = { href: '', download: '', click: () => events.push('click'), remove: () => events.push('remove') }), body: { append: () => events.push('append') } },
-    URL: { createObjectURL(value) { blob = value; events.push('blob'); return 'blob:test'; }, revokeObjectURL() { events.push('revoke'); } },
-    setTimeout: callback => { callback(); return 0; },
+test('each optimization failure shows its corresponding alert', () => {
+  const alerts = [];
+  const { reportOptimizationFailure } = loadModule('optimizationFeedback.ts', {}, {
+    window: { alert: message => alerts.push(message) },
   });
-  const settings = { classKey: 'assassin', availablePoints: 17, requiredNodeNames: ['required'], commonNodePriority: ['priority'] };
-  reportOptimizationFailure('insufficient-points', settings);
-  reportOptimizationFailure('unreachable-required', settings);
-  assert.deepEqual(events, ['데바니온 포인트가 부족합니다.', '불가능한 노드 설정입니다.']);
-  events.length = 0;
-  reportOptimizationFailure('optimization-failed', settings);
-  assert.deepEqual(events, ['최적화가 어렵습니다. 개발자에게 문의하세요.', 'blob', 'append', 'click', 'remove', 'revoke']);
-  const json = JSON.parse(await blob.text());
-  assert.deepEqual(json.settings, settings);
-  assert.equal(json.failure, 'optimization-failed');
-  assert.equal(json.schemaVersion, 1);
-  assert.equal(json.dataPatchDate, '2026-11-11');
-  assert.match(link.download, /^daevanion-settings-.*\.json$/);
+  reportOptimizationFailure('insufficient-points');
+  reportOptimizationFailure('unreachable-required');
+  reportOptimizationFailure('resource-limit');
+  reportOptimizationFailure('optimization-failed');
+  assert.deepEqual(alerts, [
+    '데바니온 포인트가 부족합니다.',
+    '불가능한 노드 설정입니다.',
+    '계산량이 너무 많습니다. 스킬 Lv2 지정을 줄여주세요.',
+    '최적화에 실패했습니다. 다시 시도해주세요.',
+  ]);
 });

@@ -8,17 +8,19 @@ export function summarizeEffects(nodes: BoardNode[]): string[] {
     const kind = node.type === 'SkillLevel' ? 1 : 0;
     const grade = gradeOrder[node.grade] ?? 4;
     for (const { desc } of node.effectList) {
-      if (!desc.trim()) continue;
-      const match = desc.trim().match(/^(.*?)\s*([+-]\d+(?:\.\d+)?)(%?)$/);
+      const description = desc.trim();
+      if (!description) continue;
+      const match = description.match(/^(.*?)\s*([+-]\d+(?:\.\d+)?)(%?)$/);
       if (!match) {
         const key = `${kind}\u0000${desc}`;
         const entry = other.get(key) ?? { text: desc, count: 0, kind, grade };
         entry.count++; entry.grade = Math.min(entry.grade, grade); other.set(key, entry);
         continue;
       }
-      const [, label, amount, suffix] = match;
-      const key = `${kind}\u0000${label.trim()}\u0000${suffix}`;
-      const entry = numeric.get(key) ?? { label: label.trim(), suffix, value: 0, kind, grade };
+      const [, text, amount, suffix] = match;
+      const label = text.trim();
+      const key = `${kind}\u0000${label}\u0000${suffix}`;
+      const entry = numeric.get(key) ?? { label, suffix, value: 0, kind, grade };
       entry.value += Number(amount);
       entry.grade = Math.min(entry.grade, grade);
       numeric.set(key, entry);

@@ -17,7 +17,7 @@ test('all 45 real boards: costs, adjacency, IDs, reachability, totals and valid 
     assert.equal(graph.nodes.length, 765);
     assert.equal(new Set(graph.nodes.map(n => n.key)).size, graph.nodes.length);
     assert.equal(graph.nodes.filter(n => n.node.grade === '일반').length, 610);
-    assert.equal(graph.reachable.size, graph.nodes.length);
+    assert.equal(graph.minimumCosts.filter(Number.isFinite).length, graph.nodes.length);
     assert.ok(prepareInput(graph, settings({ classKey: c.key }), manifest.classes.map(c => c.key)).ok);
     for (const [i, n] of graph.nodes.entries()) {
       assert.equal(n.cost, n.node.type === 'Start' ? 0 : costs[n.node.grade]);
@@ -54,7 +54,7 @@ test('invalid budgets, classes, required names and incomplete priorities fail va
 test('None cells, diagonals and other boards cannot connect nodes; malformed boards rejected', () => {
   const graph = buildGraph([board('a', [start(), node(1, 0, 1, '', 'None', 'None'), node(2, 0, 2), node(3, 1, 1)]), board('b', [start(), node(2, 0, 1)])], costs);
   assert.equal(graph.nodes.length, 5);
-  assert.deepEqual([...graph.reachable], [0, 3, 4]);
+  assert.deepEqual(graph.minimumCosts, [0, Infinity, Infinity, 0, 1]);
   for (const nodes of [[start(), start()], [node(1, 0, 1)], [start(), node(1, 0, 0)], [start(), node(1, 0, 1, '', 'Unknown')]]) {
     assert.throws(() => buildGraph([board('a', nodes)], costs));
   }

@@ -3,7 +3,6 @@ import packedBoards from 'virtual:packed-boards';
 import { unpackBoard } from './boardPacking';
 import { createGradeAdapter, type Board, type BoardNode, type Grade } from './grades';
 export type { Board, BoardNode, Grade } from './grades';
-export { gradeNames } from './grades';
 
 const adapter = createGradeAdapter(manifest.grades);
 const boardsByClass = new Map<string, Board[]>();

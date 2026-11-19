@@ -1,7 +1,7 @@
-import { connectedNodes, type OptimizationGraph } from '../src/optimizationGraph.ts';
+import { connectedNodes, type OptimizationGraph, type SkillRequirement } from '../src/optimizationGraph.ts';
 
 // Independent subset enumeration for tiny fixtures only; never a production fallback.
-export function exhaustiveOracle(graph: OptimizationGraph, budget: number, required: Set<number>, priority: string[]) {
+export function exhaustiveOracle(graph: OptimizationGraph, budget: number, required: Set<number>, priority: string[], skills: SkillRequirement[] = []) {
   const optional = graph.nodes.map((_, i) => i).filter(i => !graph.roots.includes(i));
   if (optional.length > 22) throw new Error('Oracle fixture too large');
   const feasible: { selected: Set<number>; cost: number; counts: number[]; special: number; keys: string[] }[] = [];
@@ -10,6 +10,7 @@ export function exhaustiveOracle(graph: OptimizationGraph, budget: number, requi
     optional.forEach((i, bit) => { if (mask & (2 ** bit)) selected.add(i); });
     const cost = [...selected].reduce((sum, i) => sum + graph.nodes[i].cost, 0);
     if (cost > budget || [...required].some(i => !selected.has(i))) continue;
+    if (skills.some(skill => skill.nodes.filter(i => selected.has(i)).length < skill.count)) continue;
     if (connectedNodes(graph.nodes, graph.roots, selected).size !== selected.size) continue;
     const counts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length);
     const special = [...selected].filter(i => graph.nodes[i].cost > 0 && graph.nodes[i].node.grade !== '일반' && !required.has(i)).length;

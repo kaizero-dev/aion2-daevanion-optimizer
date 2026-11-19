@@ -5,7 +5,14 @@ import { readFileSync } from 'node:fs';
 import manifest from './data/manifest.json';
 import { packBoards } from './src/boardPacking';
 
+const isolationHeaders = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+};
+
 export default defineConfig({
+  server: { headers: isolationHeaders },
+  preview: { headers: isolationHeaders },
   build: {
     rollupOptions: {
       output: {

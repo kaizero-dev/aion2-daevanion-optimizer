@@ -1,13 +1,17 @@
-export type Grade = '일반' | '희귀' | '전승' | '유일';
+export const specialGrades = ['유일', '전승', '희귀'] as const;
+export type SpecialGrade = typeof specialGrades[number];
+export type Grade = '일반' | SpecialGrade;
 export interface BoardNode {
   nodeId: number; row: number; col: number; name: string;
   grade: Grade | 'None'; type: string; effectList: { desc: string }[];
 }
 export interface Board { boardKey: string; boardName: string; nodeList: BoardNode[] }
 export interface SourceBoard extends Omit<Board, 'nodeList'> { nodeList: (Omit<BoardNode, 'grade'> & { grade: string })[] }
-export const specialGrades = ['유일', '전승', '희귀'] as const;
-export const gradeNames: Record<Grade, string> = { 일반: '일반', 희귀: '희귀', 전승: '전승', 유일: '유일' };
 export const gradeOrder: Record<Grade | 'None', number> = { 유일: 0, 전승: 1, 희귀: 2, 일반: 3, None: 4 };
+
+export function isSpecialGrade(grade: BoardNode['grade']): grade is SpecialGrade {
+  return grade !== '일반' && grade !== 'None';
+}
 
 // The unchanged source schema assigns exactly 1/2/3/4 points to the four grades.
 // Read its original keys from the manifest; keep domain values Korean everywhere.
@@ -25,7 +29,7 @@ export function createGradeAdapter(sourceCosts: Record<string, number>) {
   function normalizeBoard(board: SourceBoard): Board {
     return { ...board, nodeList: board.nodeList.map(node => {
       const grade = node.grade === 'None' ? 'None' : sourceToGrade.get(node.grade)
-        ?? (Object.hasOwn(gradeNames, node.grade) ? node.grade as Grade : undefined);
+        ?? (Object.hasOwn(gradeOrder, node.grade) ? node.grade as Grade : undefined);
       if (!grade) throw new Error('Unknown source grade');
       return { ...node, grade };
     }) };

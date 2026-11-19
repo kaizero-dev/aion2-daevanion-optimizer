@@ -13,5 +13,16 @@
 2. 이후 상위 순위 노드의 최대 개수를 유지하며 다음 순위의 개수를 최대화합니다.
 3. 개수가 같으면 사용 포인트를 최소화합니다.
 
+## 병렬 계산
+
+Vite 개발 서버와 미리보기에는 워커가 메모리 예산을 공유하는 데 필요한 응답 헤더가 설정되어 있습니다. Cloudflare Pages는 빌드 결과의 `dist/_headers` 설정을 적용합니다. 다른 서버에서 호스팅할 때는 HTTPS에서 다음 응답 헤더를 적용합니다.
+
+```http
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+공유 메모리를 사용할 수 없는 환경에서는 워커별 예산으로 계산합니다.
+
 ## 라이센스
 출처 표기 없이 수정 및 재배포 가능

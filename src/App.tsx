@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type ComponentProps, type Dispatch, type SetStateAction } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type Dispatch, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { classes, costs, getBoards, iconFor, type Board, type BoardNode, type Grade } from './data';
 import { CalculationControls, type CalculationResult } from './CalculationControls';
@@ -8,7 +8,9 @@ import { summarizeEffects } from './optimizationEffects';
 import { specialGrades, type SpecialGrade } from './grades';
 
 type Drag = { name: string; x: number; y: number; width: number; offsetX: number; offsetY: number };
-type Tooltip = { node: BoardNode; anchor: DOMRect; pointer?: { x: number; y: number }; boardNames?: string[]; boardName?: string };
+type TooltipContent = { node: BoardNode; boardNames?: string[]; boardName?: string };
+type Tooltip = TooltipContent & { anchor: DOMRect; trigger: HTMLElement; pointer?: { x: number; y: number } };
+type TooltipTouch = { id: number; x: number; y: number; trigger: HTMLElement };
 const nodeLabel = (name: string) => name.replace(/^스킬 레벨 상승 - /, '');
 
 function countCommonNodes(nodes: BoardNode[]) {
@@ -34,54 +36,103 @@ function NodeTooltip({ node, anchor, pointer, boardNames, boardName }: Tooltip) 
     {!boardNames && <strong>{node.type === 'Start' ? `${boardName} - 시작` : nodeLabel(node.name)}</strong>}{(boardNames || node.type !== 'Start') && <div className={`tooltip-description ${boardNames ? 'boards-only' : ''}`}>{boardNames ? <p>{boardNames.join(' · ')}</p> : node.effectList.filter(e => e.desc).map((effect, i) => <p key={i}>{effect.desc}</p>)}</div>}
   </div>, document.body);
 }
-type TooltipContent = Omit<Tooltip, 'anchor' | 'pointer'>;
-type SetTooltip = Dispatch<SetStateAction<Tooltip | null>>;
-interface TooltipButtonProps extends Omit<ComponentProps<'button'>, 'content'> {
-  content: TooltipContent;
-  setTooltip: SetTooltip;
-  showOnClick?: boolean;
-}
-function TooltipButton({ content, setTooltip, showOnClick = false, onClick, ...props }: TooltipButtonProps) {
-  return <button
-    {...props}
-    onMouseEnter={e => setTooltip({ ...content, anchor: e.currentTarget.getBoundingClientRect(), pointer: { x: e.clientX, y: e.clientY } })}
-    onMouseMove={e => {
-      const pointer = { x: e.clientX, y: e.clientY };
-      setTooltip(prev => prev ? { ...prev, pointer } : prev);
-    }}
-    onMouseLeave={() => setTooltip(null)}
-    onClick={e => {
-      if (showOnClick) setTooltip({ ...content, anchor: e.currentTarget.getBoundingClientRect(), pointer: e.detail ? { x: e.clientX, y: e.clientY } : undefined });
-      onClick?.(e);
-    }}
-  />;
+function useNodeTooltip() {
+  const [tooltip, setTooltip] = useState<Tooltip | null>(null);
+  const touchStart = useRef<TooltipTouch | null>(null);
+  const closeTooltip = useCallback(() => {
+    touchStart.current = null;
+    setTooltip(null);
+  }, []);
+
+  useEffect(() => {
+    function dismissOutsideTap(event: globalThis.PointerEvent) {
+      if (event.pointerType !== 'touch' || !event.isPrimary) return;
+      touchStart.current = null;
+      const target = event.target;
+      if (target instanceof Node) setTooltip(current => current?.trigger.contains(target) ? current : null);
+    }
+    function cancelTouch(event: globalThis.PointerEvent) {
+      if (event.pointerId === touchStart.current?.id) closeTooltip();
+    }
+    function dismissSwipe(event: globalThis.PointerEvent) {
+      const start = touchStart.current;
+      if (start?.id === event.pointerId && Math.hypot(event.clientX - start.x, event.clientY - start.y) >= 8) cancelTouch(event);
+    }
+    document.addEventListener('pointerdown', dismissOutsideTap, true);
+    document.addEventListener('pointermove', dismissSwipe, true);
+    document.addEventListener('pointercancel', cancelTouch, true);
+    // Close on wheel input and catch scroll events from the page or any nested container.
+    document.addEventListener('wheel', closeTooltip, { capture: true, passive: true });
+    document.addEventListener('scroll', closeTooltip, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutsideTap, true);
+      document.removeEventListener('pointermove', dismissSwipe, true);
+      document.removeEventListener('pointercancel', cancelTouch, true);
+      document.removeEventListener('wheel', closeTooltip, true);
+      document.removeEventListener('scroll', closeTooltip, true);
+    };
+  }, [closeTooltip]);
+
+  const tooltipEvents = useCallback((content: TooltipContent) => ({
+    onPointerEnter(event: PointerEvent<HTMLElement>) {
+      if (event.pointerType !== 'mouse') return;
+      const trigger = event.currentTarget;
+      const pointer = { x: event.clientX, y: event.clientY };
+      setTooltip({ ...content, trigger, anchor: trigger.getBoundingClientRect(), pointer });
+    },
+    onPointerMove(event: PointerEvent<HTMLElement>) {
+      if (event.pointerType !== 'mouse') return;
+      const trigger = event.currentTarget;
+      const pointer = { x: event.clientX, y: event.clientY };
+      setTooltip(current => current?.trigger === trigger && current.pointer ? { ...current, pointer } : current);
+    },
+    onPointerLeave(event: PointerEvent<HTMLElement>) {
+      if (event.pointerType !== 'mouse') return;
+      const trigger = event.currentTarget;
+      setTooltip(current => current?.trigger === trigger && current.pointer ? null : current);
+    },
+    onPointerDown(event: PointerEvent<HTMLElement>) {
+      if (event.pointerType !== 'touch' || !event.isPrimary) return;
+      touchStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY, trigger: event.currentTarget };
+    },
+    onPointerUp(event: PointerEvent<HTMLElement>) {
+      const start = touchStart.current;
+      const trigger = event.currentTarget;
+      if (start?.id !== event.pointerId || start.trigger !== trigger) return;
+      touchStart.current = null;
+      setTooltip({ ...content, trigger, anchor: trigger.getBoundingClientRect() });
+    },
+  }), []);
+
+  return { tooltip, tooltipEvents, closeTooltip };
 }
 
-const BoardGrid = memo(function BoardGrid({ board, classKey, activeKeys, tooltipNodeId, setTooltip }: {
-  board: Board; classKey: string; activeKeys: Set<string>; tooltipNodeId?: number; setTooltip: SetTooltip;
+type TooltipEvents = ReturnType<typeof useNodeTooltip>['tooltipEvents'];
+
+const BoardGrid = memo(function BoardGrid({ board, classKey, activeKeys, tooltipNodeId, tooltipEvents }: {
+  board: Board; classKey: string; activeKeys: Set<string>; tooltipNodeId?: number; tooltipEvents: TooltipEvents;
 }) {
-  return <div className="board-viewport" onScroll={() => setTooltip(null)}>
+  return <div className="board-viewport">
     <div className="board-grid">{board.nodeList.filter(node => node.type !== 'None').map(node =>
-      <TooltipButton
+      <button
         key={node.nodeId}
+        type="button"
         tabIndex={-1}
         className={`board-node ${node.type === 'Start' ? 'start-node' : ''}`}
         style={{ gridRow: node.row, gridColumn: node.col }}
         aria-label={`${node.name}, ${node.type === 'Start' ? '시작 노드' : node.grade}`}
         aria-describedby={tooltipNodeId === node.nodeId ? 'node-tooltip' : undefined}
-        content={{ node, boardName: board.boardName }}
-        setTooltip={setTooltip}
-        showOnClick
+        {...tooltipEvents({ node, boardName: board.boardName })}
       >
         <img src={iconFor(node, classKey, activeKeys.has(nodeKey(board.boardKey, node.nodeId)))} alt="" draggable={false} />
-      </TooltipButton>
+      </button>
     )}</div>
   </div>;
 });
 
-const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, required, tooltipName, setTooltip, setRequired }: {
+const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, required, tooltipName, tooltipEvents, setRequired }: {
   options: readonly RequiredNodeOption[]; grade: SpecialGrade; required: RequiredNodes;
-  tooltipName?: string; setTooltip: SetTooltip;
+  tooltipName?: string; tooltipEvents: TooltipEvents;
   setRequired: Dispatch<SetStateAction<RequiredNodes>>;
 }) {
   function selectCount(name: string, count: 0 | 2 | 4) {
@@ -103,32 +154,29 @@ const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, 
       const label = nodeLabel(name);
       const isSkill = type === 'SkillLevel';
       if (isSkill && grade !== '희귀') {
-        return <div key={name} className={`skill-option${selected ? ' selected' : ''}`}
-          onMouseEnter={e => setTooltip({ ...location, anchor: e.currentTarget.getBoundingClientRect() })}
-          onMouseLeave={() => setTooltip(null)}>
+        return <div key={name} className={`skill-option${selected ? ' selected' : ''}`} {...tooltipEvents(location)}>
           <span className="option-name" title={label}>{label}</span>
           <div className="skill-count-options" role="group" aria-label={`${label} 필수 노드 수`}>
             {([0, 2, 4] as const).map(value => <button key={value} type="button"
               aria-pressed={count === value}
-              onFocus={() => setTooltip(null)}
               onClick={() => selectCount(name, value)}>
               {value}
             </button>)}
           </div>
         </div>;
       }
-      return <TooltipButton
+      return <button
         key={name}
+        type="button"
         className={selected ? 'selected' : ''}
         aria-pressed={selected}
         aria-describedby={tooltipName === name ? 'node-tooltip' : undefined}
-        content={location}
-        setTooltip={setTooltip}
+        {...tooltipEvents(location)}
         onClick={() => selectCount(name, selected ? 0 : 4)}
       >
         <span className="option-name">{label}</span>
         <span className={isSkill ? 'skill-count-value' : 'selection-mark'}>{isSkill ? (selected ? '4' : '0') : (selected ? '✓' : '+')}</span>
-      </TooltipButton>;
+      </button>;
     })}
   </div>;
 });
@@ -142,7 +190,7 @@ export default function App() {
   const [requiredGrade, setRequiredGrade] = useState<SpecialGrade>('유일');
   const [priority, setPriority] = useState<string[]>(initial.priority);
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [tooltip, setTooltip] = useState<Tooltip | null>(null);
+  const { tooltip, tooltipEvents, closeTooltip } = useNodeTooltip();
   const [result, setResult] = useState<CalculationResult | null>(null);
   const boardSection = useRef<HTMLElement>(null);
   const boards = useMemo(() => getBoards(classKey), [classKey]);
@@ -227,11 +275,11 @@ export default function App() {
             <div className="grade-tabs" role="tablist" aria-label="필수 노드 등급">{specialGrades.map(grade => <button type="button" role="tab" id={`grade-${grade}`} aria-selected={requiredGrade === grade} aria-controls="required-options" className={`${grade} ${requiredGrade === grade ? 'active' : ''}`} key={grade} onClick={() => setRequiredGrade(grade)}><i className="grade-dot" />{grade}</button>)}</div>
             <RequiredNodeOptions options={requiredOptions} grade={requiredGrade} required={required}
               tooltipName={tooltip?.boardNames ? tooltip.node.name : undefined}
-              setTooltip={setTooltip} setRequired={setRequired} />
+              tooltipEvents={tooltipEvents} setRequired={setRequired} />
             <p className="field-note">스킬 Lv2 지정이 많을수록 계산이 오래 걸리며,<br />기기의 가용 자원에 따라 계산이 불가할 수 있습니다.</p>
           </section>
           <section className="panel priority-panel"><div className="section-title"><span className="step">03</span><h2>일반 노드 우선순위</h2></div><div className="priority-list" onPointerDown={startDrag} onPointerMove={dragMove} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onLostPointerCapture={() => setDrag(null)}>{ordered.map((name,index) => <div className={`priority-item ${drag?.name === name ? 'dragging' : ''}`} key={name} data-priority={name}><span className="grip" aria-hidden="true">⠿</span><span className="rank">{index+1}</span><span className="priority-name">{name}</span><div className="order-controls"><button aria-label={`${name} 우선순위 올리기`} disabled={index===0} onClick={() => move(name,index-1)}>↑</button><button aria-label={`${name} 우선순위 내리기`} disabled={index===ordered.length-1} onClick={() => move(name,index+1)}>↓</button></div></div>)}</div><p className="field-note">상위 순위의 최대 개수를 유지하며 다음 순위를 최적화합니다.</p></section>
-          <CalculationControls settings={settings} boards={boards} onResult={setResult} onStart={() => { setTooltip(null); setDrag(null); }} />
+          <CalculationControls settings={settings} boards={boards} onResult={setResult} onStart={() => { closeTooltip(); setDrag(null); }} />
         </aside>
         <section ref={boardSection} className="board-section" aria-label="데바니온 보드">
           <div className="panel board-panel">
@@ -253,7 +301,7 @@ export default function App() {
                 </button>;
               })}
             </div>
-            <BoardGrid board={board} classKey={classKey} activeKeys={activeKeys} tooltipNodeId={tooltip?.node.nodeId} setTooltip={setTooltip} />
+            <BoardGrid board={board} classKey={classKey} activeKeys={activeKeys} tooltipNodeId={tooltip?.boardName ? tooltip.node.nodeId : undefined} tooltipEvents={tooltipEvents} />
           </div>
         </section>
       </div>

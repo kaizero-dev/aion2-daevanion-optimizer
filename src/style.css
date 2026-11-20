@@ -452,6 +452,9 @@ input::-webkit-inner-spin-button {
   outline:1px solid var(--accent-border);
   z-index:1;
 }
+.board-node .inactive-node-icon {
+  filter:brightness(.5);
+}
 .start-node {
   filter:drop-shadow(0 0 7px #a5a0e840);
 }

@@ -113,7 +113,9 @@ const BoardGrid = memo(function BoardGrid({ board, classKey, activeKeys, tooltip
   board: Board; classKey: string; activeKeys: Set<string>; tooltipNodeId?: number; tooltipEvents: TooltipEvents;
 }) {
   return <div className="board-viewport">
-    <div className="board-grid">{board.nodeList.filter(node => node.type !== 'None').map(node =>
+    <div className="board-grid">{board.nodeList.filter(node => node.type !== 'None').map(node => {
+      const active = activeKeys.has(nodeKey(board.boardKey, node.nodeId));
+      return (
       <button
         key={node.nodeId}
         type="button"
@@ -124,9 +126,10 @@ const BoardGrid = memo(function BoardGrid({ board, classKey, activeKeys, tooltip
         aria-describedby={tooltipNodeId === node.nodeId ? 'node-tooltip' : undefined}
         {...tooltipEvents({ node, boardName: board.boardName })}
       >
-        <img src={iconFor(node, classKey, activeKeys.has(nodeKey(board.boardKey, node.nodeId)))} alt="" draggable={false} />
+        <img className={!active && node.type !== 'Start' ? 'inactive-node-icon' : undefined} src={iconFor(node, classKey, active)} alt="" draggable={false} />
       </button>
-    )}</div>
+      );
+    })}</div>
   </div>;
 });
 

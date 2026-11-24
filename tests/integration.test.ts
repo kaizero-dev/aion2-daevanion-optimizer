@@ -57,8 +57,10 @@ test('time estimate retains elapsed time and excludes reused boards after a sequ
   const parallel = trackOptimizationTime([100, 100], 2, 0, false, progress => updates.push(progress), () => now);
   parallel.start(0);
   parallel.start(1);
-  now = 1000;
-  parallel.sample(0, { completedWork: 50, totalWork: 100 });
+  for (const work of [20, 40, 60]) {
+    now = work * 20;
+    parallel.sample(0, { completedWork: work, totalWork: 100 });
+  }
   assert.deepEqual(updates.at(-1), { phase: 'calculating', memoryRetry: false, durationSeconds: 3 });
 
   now = 3000;
@@ -66,9 +68,32 @@ test('time estimate retains elapsed time and excludes reused boards after a sequ
   assert.deepEqual(updates.at(-1), { phase: 'calculating', memoryRetry: true, durationSeconds: null });
   sequential.reuse(1);
   sequential.start(0);
-  now = 4000;
-  sequential.sample(0, { completedWork: 50, totalWork: 100 });
+  for (const work of [20, 40, 60]) {
+    now = 3000 + work * 20;
+    sequential.sample(0, { completedWork: work, totalWork: 100 });
+  }
   assert.deepEqual(updates.at(-1), { phase: 'calculating', memoryRetry: true, durationSeconds: 5 });
+});
+
+test('time estimates use three samples and update at most once per second', () => {
+  let now = 0;
+  const estimates = [];
+  const timing = trackOptimizationTime([100], 1, 0, false, progress => estimates.push(progress.durationSeconds), () => now);
+  timing.start(0);
+  function sample(time, completedWork) {
+    now = time;
+    timing.sample(0, { completedWork, totalWork: 100 });
+  }
+  sample(400, 20);
+  sample(800, 25);
+  assert.deepEqual(estimates, [null]);
+  sample(1200, 25);
+  assert.deepEqual(estimates, [null, 3]);
+  sample(1600, 30);
+  sample(2000, 40);
+  assert.deepEqual(estimates, [null, 3]);
+  sample(2400, 45);
+  assert.deepEqual(estimates, [null, 3, 5]);
 });
 
 test('worker construction and structured-clone errors become computation failures', () => {

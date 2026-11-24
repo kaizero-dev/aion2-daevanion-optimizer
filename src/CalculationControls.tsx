@@ -90,7 +90,7 @@ export function CalculationControls({ settings, boards, onStart, onResult }: Pro
         </p>
         <dl className="calculation-times">
           <dt>{finalizing ? '진행 상태' : '예상 시간'}</dt>
-          <dd aria-live="polite">{finalizing ? '결과 정리 중' : estimatedSeconds == null ? '계산 중' : `${estimatedSeconds}초`}</dd>
+          <dd aria-live="polite">{finalizing ? '결과 정리 중' : estimatedSeconds == null ? '계산 중' : `약 ${estimatedSeconds}초`}</dd>
           <dt>경과 시간</dt>
           <dd>{elapsedSeconds}초</dd>
         </dl>

@@ -694,7 +694,7 @@ footer {
 }
 .calculation-times {
   display:grid;
-  grid-template-columns:max-content 4em;
+  grid-template-columns:max-content minmax(6em,max-content);
   gap:4px 10px;
   align-items:baseline;
   width:max-content;

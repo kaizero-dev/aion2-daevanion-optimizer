@@ -71,10 +71,16 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   const boardCount = boardWork.length;
   const workerCount = Math.min(deviceMemoryGiB > 4 ? 3 : 1, boardCount, navigator.hardwareConcurrency || 1);
   const tables: (BoardOptimizationTable | undefined)[] = [];
+  let estimatedSeconds: number | null = null;
+  const reportCalculation = (progress: OptimizationProgress) => {
+    // Leave one second for combining the board tables and building the result.
+    estimatedSeconds = progress.durationSeconds === null ? null : progress.durationSeconds + 1;
+    report({ ...progress, durationSeconds: estimatedSeconds });
+  };
   let memoryRetry = workerCount > 1;
   if (workerCount > 1) {
     try {
-      const timing = trackOptimizationTime(boardWork, workerCount, startedAt, false, report);
+      const timing = trackOptimizationTime(boardWork, workerCount, startedAt, false, reportCalculation);
       const feasible = await solveBoards(plan.boards, workerCount, memoryLimit, timing, tables);
       if (!feasible) return null;
     } catch (error) {
@@ -86,12 +92,12 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   let finalizing = false;
   return plan.finish(index => {
     if (!timing) {
-      timing = trackOptimizationTime(boardWork, 1, startedAt, memoryRetry, report);
+      timing = trackOptimizationTime(boardWork, 1, startedAt, memoryRetry, reportCalculation);
       for (let i = 0; i < boardCount; i++) {
         if (i < index || tables[i] !== undefined) timing.reuse(i);
       }
     } else if (finalizing) {
-      report({ phase: 'calculating', memoryRetry, durationSeconds: null });
+      reportCalculation({ phase: 'calculating', memoryRetry, durationSeconds: null });
     }
     finalizing = false;
     const sequential = timing;
@@ -102,7 +108,9 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   }, tables, () => {
     if (finalizing) return;
     finalizing = true;
-    report({ phase: 'finalizing', memoryRetry: timing !== undefined && memoryRetry, durationSeconds: null });
+    const elapsedSeconds = (performance.now() - startedAt) / 1000;
+    report({ phase: 'finalizing', memoryRetry: timing !== undefined && memoryRetry,
+      durationSeconds: Math.max(estimatedSeconds ?? 0, Math.ceil(elapsedSeconds + 1)) });
   });
 }
 

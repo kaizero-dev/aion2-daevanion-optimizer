@@ -24,7 +24,6 @@ export function CalculationControls({ settings, boards, onStart, onResult }: Pro
   const dialog = useRef<HTMLDialogElement>(null);
   const calculateButton = useRef<HTMLButtonElement>(null);
   const calculating = startedAt !== null;
-  const finalizing = progress?.phase === 'finalizing';
   const estimatedSeconds = progress?.durationSeconds;
 
   useLayoutEffect(() => {
@@ -89,8 +88,8 @@ export function CalculationControls({ settings, boards, onStart, onResult }: Pro
           <span aria-hidden={!progress?.memoryRetry}>메모리 초과로 계산 방식 변경</span>
         </p>
         <dl className="calculation-times">
-          <dt>{finalizing ? '진행 상태' : '예상 시간'}</dt>
-          <dd aria-live="polite">{finalizing ? '결과 정리 중' : estimatedSeconds == null ? '계산 중' : `약 ${estimatedSeconds}초`}</dd>
+          <dt>예상 시간</dt>
+          <dd aria-live="polite">{estimatedSeconds == null ? '계산 중' : `약 ${Math.max(estimatedSeconds, elapsedSeconds)}초`}</dd>
           <dt>경과 시간</dt>
           <dd>{elapsedSeconds}초</dd>
         </dl>

@@ -69,7 +69,7 @@ test('each optimization failure shows its corresponding alert', () => {
   assert.deepEqual(alerts, [
     '데바니온 포인트가 부족합니다.',
     '불가능한 노드 설정입니다.',
-    '계산량이 너무 많습니다. 스킬 Lv2 지정을 줄여주세요.',
+    '계산량이 너무 많습니다. 스킬 Lv1~3 지정을 줄여주세요.',
     '최적화에 실패했습니다. 다시 시도해주세요.',
   ]);
 });

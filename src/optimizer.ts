@@ -19,8 +19,10 @@ function verifySelection(graph: OptimizationGraph, selected: Set<number>, budget
 interface Candidate { score: number; special: number; mask: bigint }
 interface StateStorage {
   scores: Float64Array;
+  // Count plus one. Zero marks an empty cost slot without a separate array.
   specials: Uint32Array;
-  masks: (bigint | undefined)[];
+  // Each cost slot holds consecutive 32-bit words, least-significant first.
+  masks: Uint32Array;
 }
 interface StateTable extends StateStorage {
   offset: number;
@@ -41,7 +43,7 @@ interface BoardSolveNode {
   targetValue: number;
   special: boolean;
   skill?: number;
-  bit: bigint;
+  bitIndex: number;
 }
 
 export interface BoardSolveInput {
@@ -55,11 +57,18 @@ export interface BoardSolveInput {
 
 export class OptimizationMemoryLimit extends Error {}
 
-// Include backing arrays, possible BigInt masks, and per-table bookkeeping.
-const stateStorageBytes = (slots: number) => 256 + 64 * slots;
+// The estimates are 16-byte aligned so a signed 32-bit counter can track the full budget.
+const sharedBudgetUnit = 16;
+function stateStorageBytes(slots: number, maskWords: number) {
+  const slotBytes = Float64Array.BYTES_PER_ELEMENT + Uint32Array.BYTES_PER_ELEMENT * (1 + maskWords);
+  return 256 + Math.ceil(slotBytes / sharedBudgetUnit) * sharedBudgetUnit * slots;
+}
 export function boardTableBytes(table: BoardOptimizationTable) {
   let bytes = 0;
-  for (const entries of table?.values() ?? []) bytes += stateStorageBytes(entries.masks.length);
+  for (const entries of table?.values() ?? []) {
+    const slots = entries.scores.length;
+    bytes += stateStorageBytes(slots, entries.masks.length / slots);
+  }
   return bytes;
 }
 
@@ -68,12 +77,9 @@ export interface SharedOptimizationBudget {
   limit: number;
 }
 
-// The allocation estimates are 16-byte aligned. Counting in these units
-// lets a signed 32-bit counter represent the full application budget.
-const sharedBudgetUnit = 16;
-
 interface StateMemory {
   pool: StateStorage[][];
+  maskWords: number;
   bytes: number;
   limit: number;
   bufferedBoards?: (BoardOptimizationTable | undefined)[];
@@ -99,7 +105,7 @@ function releaseMemory(memory: StateMemory, bytes: number) {
 
 function releaseIdlePool(memory: StateMemory) {
   let bytes = 0;
-  memory.pool.forEach((bucket, index) => { bytes += bucket.length * stateStorageBytes(2 ** index); });
+  memory.pool.forEach((bucket, index) => { bytes += bucket.length * stateStorageBytes(2 ** index, memory.maskWords); });
   memory.pool.length = 0;
   if (bytes) releaseMemory(memory, bytes);
 }
@@ -117,7 +123,7 @@ function reserveMemory(memory: StateMemory, bytes: number) {
     for (let i = memory.pool.length - 1; i >= 0 && memory.bytes + bytes > memory.limit; i--) {
       const bucket = memory.pool[i];
       if (!bucket?.length) continue;
-      const blockBytes = stateStorageBytes(2 ** i);
+      const blockBytes = stateStorageBytes(2 ** i, memory.maskWords);
       const count = Math.min(bucket.length, Math.ceil((memory.bytes + bytes - memory.limit) / blockBytes));
       bucket.length -= count;
       memory.bytes -= count * blockBytes;
@@ -145,34 +151,32 @@ function takeStateStorage(memory: StateMemory, span: number): StateStorage {
   const existing = memory.pool[bucket]?.pop();
   if (existing) return existing;
   const size = 2 ** bucket;
-  reserveMemory(memory, stateStorageBytes(size));
+  reserveMemory(memory, stateStorageBytes(size, memory.maskWords));
   return {
-    scores: new Float64Array(size), specials: new Uint32Array(size), masks: new Array(size),
+    scores: new Float64Array(size), specials: new Uint32Array(size), masks: new Uint32Array(size * memory.maskWords),
   };
 }
 function releaseStateStorage(memory: StateMemory, table: StateStorage) {
-  const bucket = Math.log2(table.masks.length);
+  const bucket = Math.log2(table.scores.length);
   const available = memory.pool[bucket] ??= [];
   if (available.length >= 4096) {
-    releaseMemory(memory, stateStorageBytes(table.masks.length));
+    releaseMemory(memory, stateStorageBytes(table.scores.length, memory.maskWords));
     return;
   }
-  // An undefined mask marks an empty entry, so its score and special count can be reused as-is.
-  table.masks.fill(undefined);
+  // Clear occupancy so the score and mask arrays can be reused as-is.
+  table.specials.fill(0);
   available.push({ scores: table.scores, specials: table.specials, masks: table.masks });
 }
 function extendStateTable(memory: StateMemory, table: StateTable, firstCost: number, lastCost: number) {
-  if (firstCost >= table.offset && lastCost < table.offset + table.masks.length) return;
+  if (firstCost >= table.offset && lastCost < table.offset + table.scores.length) return;
   const offset = Math.min(firstCost, table.minCost);
   const extent = Math.max(lastCost, table.maxCost);
-  const storage = takeStateStorage(memory, Math.max(extent - offset + 1, table.masks.length));
-  for (let cost = table.minCost; cost <= table.maxCost; cost++) {
-    const from = cost - table.offset;
-    const to = cost - offset;
-    storage.scores[to] = table.scores[from];
-    storage.specials[to] = table.specials[from];
-    storage.masks[to] = table.masks[from];
-  }
+  const storage = takeStateStorage(memory, Math.max(extent - offset + 1, table.scores.length));
+  const from = table.minCost - table.offset, end = table.maxCost - table.offset + 1;
+  const to = table.minCost - offset, words = memory.maskWords;
+  storage.scores.set(table.scores.subarray(from, end), to);
+  storage.specials.set(table.specials.subarray(from, end), to);
+  storage.masks.set(table.masks.subarray(from * words, end * words), to * words);
   releaseStateStorage(memory, table);
   Object.assign(table, storage, { offset });
 }
@@ -387,12 +391,18 @@ function chooseBoardSteps(board: BoardSolveInput, memoryLimit: number, scratch: 
 }
 
 export function createBoardSolver(memoryLimit: number, observe?: (states: number) => void, sharedBudget?: SharedOptimizationBudget) {
-  const memory: StateMemory = { pool: [], bytes: 0, limit: memoryLimit, sharedBudget };
+  const memory: StateMemory = { pool: [], maskWords: 0, bytes: 0, limit: memoryLimit, sharedBudget };
   const scratch: TransitionScratch = { labels: new Int32Array(32), next: new Int32Array(30),
     components: new Int32Array(32), canonical: new Int32Array(32) };
 
   function solveBoard(board: BoardSolveInput, onProgress?: (progress: BoardProgress) => void): BoardOptimizationTable {
     const { nodes, order, stepWork, limit, skillTargets } = board;
+    const highestBitIndex = nodes.reduce((highest, node) => Math.max(highest, node.bitIndex), 0);
+    const words = Math.floor(highestBitIndex / 32) + 1;
+    if (words !== memory.maskWords) {
+      releaseIdlePool(memory);
+      memory.maskWords = words;
+    }
     const steps = chooseBoardSteps(board, memoryLimit, scratch);
     const work = onProgress
       ? (steps.every((step, i) => step.node === order[i]) ? stepWork : estimateBoardWork(nodes, steps.map(step => step.node), skillTargets))
@@ -405,12 +415,14 @@ export function createBoardSolver(memoryLimit: number, observe?: (states: number
     onProgress?.({ completedWork, totalWork });
     const initial: StateTable = { ...takeStateStorage(memory, 1), offset: 0, minCost: 0, maxCost: 0 };
     initial.scores[0] = 0;
-    initial.specials[0] = 0;
-    initial.masks[0] = 0n;
+    initial.specials[0] = 1;
+    initial.masks.fill(0, 0, words);
     let states = new Map<string, StateTable>([[emptyCounts, initial]]);
     for (const [stepIndex, step] of steps.entries()) {
       const node = nodes[step.node];
-      const { targetValue, special, skill } = node;
+      const { targetValue, special, skill, bitIndex } = node;
+      const bitWord = bitIndex >>> 5;
+      const bit = 1 << (bitIndex & 31);
       const choices = selectionChoices(node);
       const nextStates = new Map<string, StateTable>();
       for (const [state, costs] of states) {
@@ -437,20 +449,29 @@ export function createBoardSolver(memoryLimit: number, observe?: (states: number
           const addedSpecial = Number(selected && special);
           for (let nextCost = firstCost; nextCost <= lastCost; nextCost++) {
             const from = nextCost - addedCost - costs.offset;
-            const sourceMask = costs.masks[from];
-            if (sourceMask === undefined) continue;
+            const sourceSpecials = costs.specials[from];
+            if (sourceSpecials === 0) continue;
             const to = nextCost - entries.offset;
             const score = costs.scores[from] + addedScore;
-            const specials = costs.specials[from] + addedSpecial;
-            const existingMask = entries.masks[to];
+            const specials = sourceSpecials + addedSpecial;
             const existingScore = entries.scores[to];
             const existingSpecials = entries.specials[to];
-            if (existingMask !== undefined && (existingScore > score || existingScore === score && existingSpecials < specials)) continue;
-            const mask = selected ? sourceMask | node.bit : sourceMask;
-            if (existingMask !== undefined && existingScore === score && existingSpecials === specials && existingMask >= mask) continue;
+            if (existingSpecials !== 0 && (existingScore > score || existingScore === score && existingSpecials < specials)) continue;
+            const fromWord = from * words, toWord = to * words;
+            if (existingSpecials === specials && existingScore === score) {
+              // Compare from the most significant word to preserve the original mask ordering.
+              let difference = 0;
+              for (let word = words - 1; word >= 0; word--) {
+                const candidate = costs.masks[fromWord + word] | (selected && word === bitWord ? bit : 0);
+                difference = (candidate >>> 0) - entries.masks[toWord + word];
+                if (difference !== 0) break;
+              }
+              if (difference <= 0) continue;
+            }
             entries.scores[to] = score;
             entries.specials[to] = specials;
-            entries.masks[to] = mask;
+            for (let word = 0; word < words; word++) entries.masks[toWord + word] = costs.masks[fromWord + word];
+            if (selected) entries.masks[toWord + bitWord] |= bit;
             if (nextCost < entries.minCost) entries.minCost = nextCost;
             if (nextCost > entries.maxCost) entries.maxCost = nextCost;
           }
@@ -465,9 +486,9 @@ export function createBoardSolver(memoryLimit: number, observe?: (states: number
         let firstCost = limit + 1, lastCost = -1;
         for (let cost = entries.minCost; cost <= entries.maxCost; cost++) {
           const index = cost - entries.offset;
-          if (entries.masks[index] === undefined) continue;
+          if (entries.specials[index] === 0) continue;
           const score = entries.scores[index];
-          if (score <= bestObjective) entries.masks[index] = undefined;
+          if (score <= bestObjective) entries.specials[index] = 0;
           else {
             bestObjective = score;
             if (firstCost > cost) firstCost = cost;
@@ -547,10 +568,10 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
       commonCounts: priority.map(name => [...direct].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length) };
   }
   const sorted = graph.nodes.map((_, i) => i).sort((a, b) => graph.nodes[a].key < graph.nodes[b].key ? -1 : 1);
-  const bits = graph.nodes.map(() => 0n);
+  const bitIndices = graph.nodes.map(() => 0);
   const boardMembers = new Map<string, number[]>();
   sorted.forEach((index, rank) => {
-    bits[index] = 1n << BigInt(sorted.length - rank - 1);
+    bitIndices[index] = sorted.length - rank - 1;
     const { boardKey } = graph.nodes[index];
     const members = boardMembers.get(boardKey);
     if (members) members.push(index);
@@ -592,7 +613,7 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
         root, forced: root || requiredNode, selectable: graph.minimumCosts[index] <= budget,
         cost, targetValue: common ? placeValues.get(node.name) ?? 0 : 0,
         special: cost > 0 && !common && !requiredNode, skill: skillByNode.get(index),
-        bit: contiguousBoards ? 1n << BigInt(members.length - rank - 1) : bits[index],
+        bitIndex: contiguousBoards ? members.length - rank - 1 : bitIndices[index],
       };
     });
     const order = chooseTraversal(nodes, nodes.map((_, index) => index));
@@ -627,6 +648,7 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
           counts += count;
         }
         if (counts.length !== skills.length) continue;
+        const maskWords = entries.masks.length / entries.scores.length;
         let combined = nextGlobal.get(counts);
         for (let a = 0; a < previous.length; a++) {
           const first = previous[a];
@@ -634,8 +656,8 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
           const prefixMask = first.mask << shift;
           for (let b = entries.minCost; b <= entries.maxCost && a + b <= limit; b++) {
             const index = b - entries.offset;
-            const secondMask = entries.masks[index];
-            if (secondMask === undefined) continue;
+            const encodedSpecial = entries.specials[index];
+            if (encodedSpecial === 0) continue;
             if (!combined) {
               const bytes = 128;
               reserveMemory(memory, bytes);
@@ -644,9 +666,15 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
               nextGlobal.set(counts, combined);
             }
             const score = first.score + entries.scores[index];
-            const special = first.special + entries.specials[index];
+            const special = first.special + encodedSpecial - 1;
             const existing = combined[a + b];
             if (existing && (existing.score > score || existing.score === score && existing.special < special)) continue;
+            // Decode only masks that pass the score and special-node comparisons.
+            let secondMask = 0n;
+            const maskStart = index * maskWords;
+            for (let word = maskStart + maskWords - 1; word >= maskStart; word--) {
+              secondMask = (secondMask << 32n) | BigInt(entries.masks[word]);
+            }
             const mask = prefixMask | secondMask;
             if (existing && existing.score === score && existing.special === special && existing.mask >= mask) continue;
             if (existing) { existing.score = score; existing.special = special; existing.mask = mask; }
@@ -689,7 +717,7 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
       if (candidate && (!winner || candidate.score > winner.score)) { winner = candidate; usedPoints = cost; }
     }
     if (!winner) return null;
-    const selected = new Set(graph.nodes.flatMap((_, i) => winner!.mask & bits[i] ? [i] : []));
+    const selected = new Set(bitIndices.flatMap((bitIndex, i) => winner!.mask & (1n << BigInt(bitIndex)) ? [i] : []));
     if (!meetsSkills(selected)) throw new Error('Skill requirement mismatch');
     if (verifySelection(graph, selected, budget, required) !== usedPoints) throw new Error('Frontier cost mismatch');
     const commonCounts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length);

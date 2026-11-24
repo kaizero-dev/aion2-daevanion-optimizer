@@ -21,7 +21,7 @@ scope.onmessage = ({ data }) => {
     if (tableLimit !== undefined && tableBytes > tableLimit) throw new OptimizationMemoryLimit();
     const transfer: Transferable[] = [];
     for (const entries of table?.values() ?? []) {
-      transfer.push(entries.scores.buffer, entries.specials.buffer);
+      transfer.push(entries.scores.buffer, entries.specials.buffer, entries.masks.buffer);
     }
     solver.prepareTableTransfer(tableBytes);
     scope.postMessage({ index: data.index, table }, transfer);

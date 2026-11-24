@@ -171,6 +171,27 @@ test('mask encoding and decoding agree when board keys share a prefix', () => {
   }
 });
 
+test('packed masks preserve node ties across signed bit and word boundaries', () => {
+  for (const nodeCount of [33, 34, 65, 66]) {
+    const nodeList = Array.from({ length: nodeCount }, (_, i) => ({
+      nodeId: 100 + i,
+      row: Math.max(0, i - 2),
+      col: i === 1 ? -1 : i === 2 ? 1 : 0,
+      name: i === 0 ? '' : i <= 2 ? 'high' : 'required',
+      type: i === 0 ? 'Start' : 'Stat',
+      grade: i === 0 ? 'None' : '일반',
+    }));
+    const graph = buildGraph([{ boardKey: 'a', nodeList }], { 일반: 1, 희귀: 2, 전승: 3, 유일: 4 });
+    const required = new Set(graph.nodes.flatMap(({ node }, i) => node.name === 'required' ? [i] : []));
+    const budget = required.size + 1;
+    assert.deepEqual(optimizeFrontier(graph, budget, required, ['high']), {
+      activeKeys: nodeList.filter(node => node.nodeId !== 102).map(node => `a:${node.nodeId}`),
+      usedPoints: budget,
+      commonCounts: [1],
+    });
+  }
+});
+
 test('unused pooled arrays can be released to complete within the memory limit', () => {
   const priority = ['high', 'middle', 'low'];
   const graph = buildGraph(Array.from({ length: 3 }, (_, board) => ({

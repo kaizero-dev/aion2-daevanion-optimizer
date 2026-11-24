@@ -158,9 +158,10 @@ const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, 
       const selected = count > 0;
       const label = nodeLabel(name);
       const isSkill = type === 'SkillLevel';
+      const optionTooltipEvents = mobile ? undefined : tooltipEvents(location);
       if (isSkill && grade !== '희귀') {
-        return <div key={name} className={`skill-option${selected ? ' selected' : ''}`} {...tooltipEvents(location)}>
-          <span className="option-name" title={label}>{label}</span>
+        return <div key={name} className={`skill-option${selected ? ' selected' : ''}`} {...optionTooltipEvents}>
+          <span className="option-name" title={mobile ? undefined : label}>{label}</span>
           <div className={`skill-count-options${mobile ? ' skill-count-stepper' : ''}`} role="group" aria-label={`${label} 필수 노드 수`}>
             {mobile ? <>
               <button type="button" aria-label="레벨 낮추기" disabled={count === 0}
@@ -181,8 +182,8 @@ const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, 
         type="button"
         className={selected ? 'selected' : ''}
         aria-pressed={selected}
-        aria-describedby={tooltipName === name ? 'node-tooltip' : undefined}
-        {...tooltipEvents(location)}
+        aria-describedby={!mobile && tooltipName === name ? 'node-tooltip' : undefined}
+        {...optionTooltipEvents}
         onClick={() => selectCount(name, selected ? 0 : 4)}
       >
         <span className="option-name">{label}</span>

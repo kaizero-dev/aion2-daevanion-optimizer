@@ -1,4 +1,4 @@
-import type { BoardProgress, BoardSolveInput, MergeProgress } from './optimizer';
+import type { BoardProgress } from './optimizer';
 import type { OptimizationProgress } from './optimizationProtocol';
 
 export function trackOptimizationTime(boardWork: number[], workers: number, startedAt: number, memoryRetry: boolean,
@@ -72,74 +72,6 @@ export function trackOptimizationTime(boardWork: number[], workers: number, star
       board.completed = board.total;
       board.sampled = time - board.started;
       updateEstimate(time);
-    },
-  };
-}
-
-// Before the tables exist, count possible skill-count pairs and approximate the
-// width of a cost frontier from the number of nodes that can improve its score.
-function projectMergeWork(boards: BoardSolveInput[]) {
-  const targets = boards[0]?.skillTargets ?? [];
-  const counts = boards.map(({ nodes }) => {
-    const available = targets.map(() => 0);
-    for (const { skill, selectable } of nodes) {
-      if (skill !== undefined && selectable) available[skill]++;
-    }
-    return available;
-  });
-  const remaining = targets.map((_, i) => counts.reduce((sum, board) => sum + board[i], 0));
-  const seen = targets.map(() => 0);
-  let prefixWidth = 1;
-  return boards.map(({ nodes, limit }, index) => {
-    const width = Math.max(1, Math.min(limit + 1,
-      Math.ceil(nodes.filter(node => node.selectable && node.targetValue > 0).length * 0.55)));
-    let pairs = 1;
-    for (const [skill, target] of targets.entries()) {
-      const local = counts[index][skill];
-      remaining[skill] -= local;
-      let allowed = 0;
-      for (let a = 0; a <= Math.min(target, seen[skill]); a++) {
-        const first = Math.max(0, target - remaining[skill] - a);
-        allowed += Math.max(0, Math.min(target, local) - first + 1);
-      }
-      seen[skill] += local;
-      pairs *= allowed;
-    }
-    const work = pairs * prefixWidth * (index === boards.length - 1 ? 1 : width);
-    prefixWidth += width;
-    return work;
-  });
-}
-
-export function trackMergeTime(boards: BoardSolveInput[], now = () => performance.now()) {
-  const projected = projectMergeWork(boards);
-  const laterWork = projected.map((_, i) => projected.slice(i + 1).reduce((sum, work) => sum + work, 0));
-  // Calibrated in cost-pair units per millisecond. Measured progress supersedes
-  // this rate once the current merge stage has a meaningful timing sample.
-  const initialRate = 180_000;
-  let index = -1;
-  let startedAt = 0;
-  let remainingWork = projected.reduce((sum, work) => sum + work, 0);
-  let rate = initialRate;
-  let lastMeasuredRate = initialRate;
-
-  return {
-    sample(progress: MergeProgress) {
-      const time = now();
-      if (progress.index !== index) {
-        index = progress.index;
-        startedAt = time;
-        rate = lastMeasuredRate;
-      }
-      const elapsed = time - startedAt;
-      if (elapsed >= 200 && progress.completedWork > 0) {
-        rate = progress.completedWork / elapsed;
-        lastMeasuredRate = rate;
-      }
-      remainingWork = Math.max(0, progress.totalWork - progress.completedWork) + laterWork[index];
-    },
-    remainingSeconds() {
-      return (350 + remainingWork / rate * 1.25) / 1000;
     },
   };
 }

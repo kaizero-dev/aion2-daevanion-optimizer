@@ -2,7 +2,7 @@ import manifest from '../data/manifest.json';
 import { createGradeAdapter } from './grades';
 import { buildGraph, prepareInput, type OptimizationGraph, type PreparedInput } from './optimizationGraph';
 import { createOptimizationPlan, OptimizationMemoryLimit, type BoardOptimizationTable, type BoardSolveInput } from './optimizer';
-import { trackMergeTime, trackOptimizationTime } from './optimizationTiming';
+import { trackOptimizationTime } from './optimizationTiming';
 import type { BoardWorkerRequest, BoardWorkerResponse, OptimizationProgress, OptimizationRequest, OptimizationWorkerMessage } from './optimizationProtocol';
 
 const { costs } = createGradeAdapter(manifest.grades);
@@ -71,20 +71,11 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   const boardCount = boardWork.length;
   const workerCount = Math.min(deviceMemoryGiB > 4 ? 3 : 1, boardCount, navigator.hardwareConcurrency || 1);
   const tables: (BoardOptimizationTable | undefined)[] = [];
-  const mergeTiming = trackMergeTime(plan.boards);
-  let firstEstimate: number | null = null;
-  let calculationEstimate: number | null = null;
+  let estimatedSeconds: number | null = null;
   const reportCalculation = (progress: OptimizationProgress) => {
-    const estimate = progress.durationSeconds === null
-      ? null : Math.ceil(progress.durationSeconds + mergeTiming.remainingSeconds());
-    if (estimate === null) firstEstimate = null;
-    else firstEstimate ??= estimate;
-    // Early frontier throughput can swing sharply as boards start and finish.
-    // Keep the first estimate as a floor until actual merge work is available.
-    const durationSeconds = estimate === null ? null : Math.max(firstEstimate ?? estimate, estimate);
-    if (durationSeconds !== null && durationSeconds === calculationEstimate) return;
-    calculationEstimate = durationSeconds;
-    report({ ...progress, durationSeconds });
+    // Leave one second for combining the board tables and building the result.
+    estimatedSeconds = progress.durationSeconds === null ? null : progress.durationSeconds + 1;
+    report({ ...progress, durationSeconds: estimatedSeconds });
   };
   let memoryRetry = workerCount > 1;
   if (workerCount > 1) {
@@ -99,14 +90,6 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
 
   let timing: ReturnType<typeof trackOptimizationTime> | undefined;
   let finalizing = false;
-  let finalEstimate: number | null = null;
-  const reportFinalizing = () => {
-    const elapsed = (performance.now() - startedAt) / 1000;
-    const durationSeconds = Math.ceil(elapsed + mergeTiming.remainingSeconds());
-    if (durationSeconds === finalEstimate) return;
-    finalEstimate = durationSeconds;
-    report({ phase: 'finalizing', memoryRetry: timing !== undefined && memoryRetry, durationSeconds });
-  };
   return plan.finish(index => {
     if (!timing) {
       timing = trackOptimizationTime(boardWork, 1, startedAt, memoryRetry, reportCalculation);
@@ -117,7 +100,6 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
       reportCalculation({ phase: 'calculating', memoryRetry, durationSeconds: null });
     }
     finalizing = false;
-    finalEstimate = null;
     const sequential = timing;
     sequential.start(index);
     const table = plan.solveBoard(index, progress => sequential.sample(index, progress));
@@ -126,10 +108,9 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   }, tables, () => {
     if (finalizing) return;
     finalizing = true;
-    reportFinalizing();
-  }, progress => {
-    mergeTiming.sample(progress);
-    if (finalizing) reportFinalizing();
+    const elapsedSeconds = (performance.now() - startedAt) / 1000;
+    report({ phase: 'finalizing', memoryRetry: timing !== undefined && memoryRetry,
+      durationSeconds: Math.max(estimatedSeconds ?? 0, Math.ceil(elapsedSeconds + 1)) });
   });
 }
 

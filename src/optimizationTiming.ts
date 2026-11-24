@@ -6,7 +6,7 @@ export function trackOptimizationTime(boardWork: number[], workers: number, star
   const boards = boardWork.map(total => ({ total, completed: 0, started: -1, sampled: 0, finished: false }));
   let lastReportAt = now();
   let lastEstimate: number | null = null;
-  report({ memoryRetry, durationSeconds: null });
+  report({ phase: 'calculating', memoryRetry, durationSeconds: null });
 
   function updateEstimate(time: number) {
     if (time - lastReportAt < 350 || boards.every(board => board.finished)) return;
@@ -37,7 +37,7 @@ export function trackOptimizationTime(boardWork: number[], workers: number, star
     lastReportAt = time;
     if (durationSeconds === lastEstimate) return;
     lastEstimate = durationSeconds;
-    report({ memoryRetry, durationSeconds });
+    report({ phase: 'calculating', memoryRetry, durationSeconds });
   }
 
   return {

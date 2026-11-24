@@ -2,7 +2,6 @@
 // the artifact and protocol; it does not claim browser dialog/DOM verification.
 import { Worker } from 'node:worker_threads';
 import { readdirSync } from 'node:fs';
-import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { toOptimizationBoards } from '../src/optimizationGraph.ts';
 import { costs, getBoards } from './testData.ts';
@@ -47,7 +46,9 @@ globalThis.Worker = class {
 };
 
 await import(new URL(workerData.asset, workerData.assets));
-parentPort.on('message', data => self.onmessage({ data }));
+parentPort.on('message', data => {
+  if (!workerData.ignoreRequests) self.onmessage({ data });
+});
 `;
 const bridgeUrl = new URL('data:text/javascript;base64,' + Buffer.from(bridge).toString('base64'));
 function createWorker(options = {}) {
@@ -55,16 +56,21 @@ function createWorker(options = {}) {
 }
 const boards = toOptimizationBoards(getBoards('gladiator'));
 const settings = { classKey: 'gladiator', availablePoints: 0, requiredNodeNames: [], commonNodePriority: ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항'] };
-function request(worker, message, timeoutMs) {
+function request(worker, message, { timeoutMs = 30_000, waitForProgress = false } = {}) {
   return new Promise((resolve, reject) => {
     let boardTables = 0;
     let memoryRetry = false;
+    let finalizing = false;
     const sharedBudgets = [];
-    const timeout = timeoutMs && setTimeout(() => onError(new Error('Worker request timed out')), timeoutMs);
+    const awaited = waitForProgress ? 'progress' : 'result';
+    const timeout = setTimeout(() =>
+      onError(new Error(`Worker request ${message.requestId} timed out waiting for ${awaited} after ${timeoutMs}ms`)), timeoutMs);
     function cleanup() {
       clearTimeout(timeout);
       worker.off('message', onMessage);
       worker.off('error', onError);
+      worker.off('messageerror', onError);
+      worker.off('exit', onExit);
     }
     function onMessage(data) {
       if (data.boardTable) { boardTables++; return; }
@@ -72,18 +78,25 @@ function request(worker, message, timeoutMs) {
       if (data.requestId !== message.requestId) return;
       if ('progress' in data) {
         memoryRetry ||= data.progress.memoryRetry;
-        return;
+        finalizing ||= data.progress.phase === 'finalizing';
+        if (!waitForProgress) return;
       }
       cleanup();
-      resolve({ ...data, boardTables, memoryRetry, sharedBudgets });
+      resolve({ ...data, boardTables, memoryRetry, finalizing, sharedBudgets });
     }
     function onError(error) {
       cleanup();
       reject(error);
     }
+    function onExit(code) {
+      onError(new Error(`Worker exited with code ${code} before request ${message.requestId} sent ${awaited}`));
+    }
     worker.on('message', onMessage);
     worker.once('error', onError);
-    worker.postMessage(message);
+    worker.once('messageerror', onError);
+    worker.once('exit', onExit);
+    try { worker.postMessage(message); }
+    catch (error) { onError(error); }
   });
 }
 const worker = createWorker();
@@ -105,6 +118,7 @@ try {
   const allRequired = [...new Set(boards.flatMap(board => board.nodeList.filter(node => costs[node.grade] > 1).map(node => node.name)))];
   const defaults = await request(worker, { requestId: 5, settings: { ...settings, availablePoints: 837, requiredNodeNames: allRequired }, boards });
   assert.ok(defaults.result, JSON.stringify(defaults));
+  assert.equal(defaults.finalizing, true);
   assert.ok(defaults.result.usedPoints <= 837);
   const active = new Set(defaults.result.activeKeys);
   for (const board of boards) for (const node of board.nodeList) {
@@ -115,6 +129,7 @@ try {
     requestId: 6, deviceMemoryGiB: 8, settings: { ...settings, availablePoints: 837, requiredNodeNames: allRequired }, boards,
   });
   assert.equal(parallel.boardTables, boards.length);
+  assert.equal(parallel.finalizing, true);
   assert.deepEqual(parallel.sharedBudgets, []);
   assert.deepEqual(parallel.result, defaults.result);
   console.log('Parallel board transfers match the sequential result: passed');
@@ -137,12 +152,21 @@ const cancelled = createWorker();
 let settled = false;
 cancelled.on('message', data => { settled ||= 'result' in data || 'failure' in data; });
 try {
-  const started = once(cancelled, 'message');
-  cancelled.postMessage({ requestId: 7, settings: { ...settings, availablePoints: 1000 }, boards });
-  assert.ok((await started)[0].progress);
+  const started = await request(cancelled, { requestId: 7, settings: { ...settings, availablePoints: 1000 }, boards },
+    { waitForProgress: true });
+  assert.equal(started.progress?.phase, 'calculating');
 } finally { await cancelled.terminate(); }
 assert.equal(settled, false);
 console.log('Built Worker termination during computation: passed');
+
+const unresponsive = createWorker({ ignoreRequests: true });
+try {
+  for (const waitForProgress of [false, true]) {
+    await assert.rejects(request(unresponsive, { requestId: 7, settings, boards }, { timeoutMs: 100, waitForProgress }),
+      new RegExp(`timed out waiting for ${waitForProgress ? 'progress' : 'result'}`));
+  }
+  console.log('Built Worker result and startup waits time out: passed');
+} finally { await unresponsive.terminate(); }
 
 const retryWorker = createWorker({ forceMemoryLimit: true });
 try {
@@ -158,6 +182,7 @@ try {
   const retry = await request(retryWorker, { requestId: 9, settings: requestSettings, boards, deviceMemoryGiB: 8 });
   assert.ok(retry.boardTables > 0 && retry.boardTables < boards.length);
   assert.ok(retry.memoryRetry);
+  assert.equal(retry.finalizing, true);
   assert.ok(sequential.result);
   assert.deepEqual(retry.result, sequential.result);
   console.log('Parallel memory retry with partial board results preserves the constrained result: passed');
@@ -179,8 +204,9 @@ try {
     ] : [node(0, 0, '', 'None', 'Start'), node(1, 1, priority[index + 1])],
   }));
   const requestSettings = { ...settings, availablePoints: 5, requiredNodeNames: ['required'] };
-  const sequential = await request(infeasibleWorker, { requestId: 10, settings: requestSettings, boards: infeasibleBoards }, 5000);
-  const parallel = await request(infeasibleWorker, { requestId: 11, settings: requestSettings, boards: infeasibleBoards, deviceMemoryGiB: 8 }, 5000);
+  const sequential = await request(infeasibleWorker, { requestId: 10, settings: requestSettings, boards: infeasibleBoards }, { timeoutMs: 5000 });
+  const parallel = await request(infeasibleWorker, { requestId: 11, settings: requestSettings, boards: infeasibleBoards, deviceMemoryGiB: 8 },
+    { timeoutMs: 5000 });
   assert.equal(sequential.failure, 'insufficient-points');
   assert.equal(parallel.failure, sequential.failure);
   assert.equal(parallel.boardTables, 1);

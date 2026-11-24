@@ -5,6 +5,7 @@ export interface OptimizationRequest { requestId: number; settings: Optimization
 export type OptimizationResponse = { requestId: number; result: OptimizationResult; failure?: never }
   | { requestId: number; failure: OptimizationFailure; result?: never };
 export interface OptimizationProgress {
+  phase: 'calculating' | 'finalizing';
   memoryRetry: boolean;
   durationSeconds: number | null;
 }

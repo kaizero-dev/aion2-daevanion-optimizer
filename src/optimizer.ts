@@ -144,7 +144,8 @@ function reserveMemory(memory: StateMemory, bytes: number) {
 interface OptimizationPlan {
   boards: BoardSolveInput[];
   solveBoard(index: number, onProgress?: (progress: BoardProgress) => void): BoardOptimizationTable;
-  finish(getBoard: (index: number) => BoardOptimizationTable, bufferedBoards?: (BoardOptimizationTable | undefined)[]): OptimizationResult | null;
+  finish(getBoard: (index: number) => BoardOptimizationTable, bufferedBoards?: (BoardOptimizationTable | undefined)[],
+    onFinalizing?: () => void): OptimizationResult | null;
 }
 function takeStateStorage(memory: StateMemory, span: number): StateStorage {
   const bucket = Math.ceil(Math.log2(span));
@@ -624,7 +625,8 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
   const solver = createBoardSolver(memoryLimit, observe);
   const { memory } = solver;
   const solveBoard = (index: number, onProgress?: (progress: BoardProgress) => void) => solver.solveBoard(boards[index], onProgress);
-  const combineBoards = (getBoard: OptimizationPlan['solveBoard'], bufferedBoards: (BoardOptimizationTable | undefined)[]) => {
+  const combineBoards = (getBoard: OptimizationPlan['solveBoard'], bufferedBoards: (BoardOptimizationTable | undefined)[],
+    onFinalizing?: () => void) => {
     const candidateBytes = 96;
     const remaining = skills.map(skill => skill.nodes.length);
     let previousBytes = 0;
@@ -637,6 +639,8 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
       if (buffered !== undefined) bufferedBoards[index] = undefined;
       const boardEntries = buffered === undefined ? getBoard(index) : buffered;
       if (!boardEntries) return null;
+      // Earlier boards are merged and all later boards are ready to merge.
+      if (onFinalizing && boards.every((_, i) => i <= index || bufferedBoards[i] != null)) onFinalizing();
       const nextGlobal = new Map<string, (Candidate | undefined)[]>();
       const shift = BigInt(contiguousBoards ? nodes.length : 0);
       let nextBytes = 0;
@@ -727,10 +731,10 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
   };
   return {
     boards, solveBoard,
-    finish(getBoard, bufferedBoards = []) {
+    finish(getBoard, bufferedBoards = [], onFinalizing) {
       reserveMemory(memory, bufferedBoards.reduce((bytes, table) => bytes + boardTableBytes(table ?? null), 0));
       memory.bufferedBoards = bufferedBoards;
-      try { return combineBoards(getBoard, bufferedBoards); }
+      try { return combineBoards(getBoard, bufferedBoards, onFinalizing); }
       finally { memory.bufferedBoards = undefined; }
     },
   };

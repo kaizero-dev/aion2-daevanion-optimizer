@@ -22,7 +22,7 @@ test('jobs terminate on cancel/recalculation and reject stale, duplicate and mis
   const first = new FakeWorker(); const second = new FakeWorker();
   const completions = [];
   const updates = [];
-  const progress = { memoryRetry: true, durationSeconds: null };
+  const progress = { phase: 'calculating' as const, memoryRetry: true, durationSeconds: null };
   const boards = getBoards(settings.classKey);
   job.start(settings, () => first, response => completions.push(response), boards, update => updates.push(update));
   assert.deepEqual(first.message.boards, boards.map(({ boardKey, nodeList }) => ({
@@ -59,16 +59,16 @@ test('time estimate retains elapsed time and excludes reused boards after a sequ
   parallel.start(1);
   now = 1000;
   parallel.sample(0, { completedWork: 50, totalWork: 100 });
-  assert.deepEqual(updates.at(-1), { memoryRetry: false, durationSeconds: 3 });
+  assert.deepEqual(updates.at(-1), { phase: 'calculating', memoryRetry: false, durationSeconds: 3 });
 
   now = 3000;
   const sequential = trackOptimizationTime([100, 100], 1, 0, true, progress => updates.push(progress), () => now);
-  assert.deepEqual(updates.at(-1), { memoryRetry: true, durationSeconds: null });
+  assert.deepEqual(updates.at(-1), { phase: 'calculating', memoryRetry: true, durationSeconds: null });
   sequential.reuse(1);
   sequential.start(0);
   now = 4000;
   sequential.sample(0, { completedWork: 50, totalWork: 100 });
-  assert.deepEqual(updates.at(-1), { memoryRetry: true, durationSeconds: 5 });
+  assert.deepEqual(updates.at(-1), { phase: 'calculating', memoryRetry: true, durationSeconds: 5 });
 });
 
 test('worker construction and structured-clone errors become computation failures', () => {

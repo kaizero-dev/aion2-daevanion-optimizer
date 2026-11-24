@@ -83,19 +83,27 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   }
 
   let timing: ReturnType<typeof trackOptimizationTime> | undefined;
+  let finalizing = false;
   return plan.finish(index => {
     if (!timing) {
       timing = trackOptimizationTime(boardWork, 1, startedAt, memoryRetry, report);
       for (let i = 0; i < boardCount; i++) {
         if (i < index || tables[i] !== undefined) timing.reuse(i);
       }
+    } else if (finalizing) {
+      report({ phase: 'calculating', memoryRetry, durationSeconds: null });
     }
+    finalizing = false;
     const sequential = timing;
     sequential.start(index);
     const table = plan.solveBoard(index, progress => sequential.sample(index, progress));
     sequential.finish(index);
     return table;
-  }, tables);
+  }, tables, () => {
+    if (finalizing) return;
+    finalizing = true;
+    report({ phase: 'finalizing', memoryRetry: timing !== undefined && memoryRetry, durationSeconds: null });
+  });
 }
 
 const scope = self as unknown as { onmessage: ((event: MessageEvent<OptimizationRequest>) => void) | null; postMessage: (message: OptimizationWorkerMessage) => void };

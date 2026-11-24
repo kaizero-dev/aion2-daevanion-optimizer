@@ -1,7 +1,9 @@
 import { getBoards } from './data';
 import { isSpecialGrade, specialGrades, type BoardNode, type SpecialGrade } from './grades';
 export const defaultPriority = ['공격력', '치명타', '방어력', '최대 생명력', '최대 정신력', '치명타 저항'];
-export type RequiredNodes = Map<string, 'all' | 2>;
+export const skillLevels = [0, 1, 2, 3, 4] as const;
+export type SkillLevel = typeof skillLevels[number];
+export type RequiredNodes = Map<string, 'all' | Exclude<SkillLevel, 0 | 4>>;
 export interface RequiredNodeOption { node: BoardNode; boardNames: string[] }
 type RequiredNodeOptions = ReadonlyMap<SpecialGrade, readonly RequiredNodeOption[]>;
 

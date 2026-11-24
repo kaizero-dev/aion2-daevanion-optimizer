@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { classes, costs, getBoards, iconFor, type Board, type BoardNode, type Grade } from './data';
 import { CalculationControls, type CalculationResult } from './CalculationControls';
 import { nodeKey } from './optimizationGraph';
-import { createInitialSettings, defaultPriority, defaultRequiredNodes, getRequiredNodeOptions, requiredNodeSettings, type RequiredNodeOption, type RequiredNodes } from './settingsDefaults';
+import { createInitialSettings, defaultPriority, defaultRequiredNodes, getRequiredNodeOptions, requiredNodeSettings, skillLevels, type RequiredNodeOption, type RequiredNodes, type SkillLevel } from './settingsDefaults';
 import { summarizeEffects } from './optimizationEffects';
 import { specialGrades, type SpecialGrade } from './grades';
 
@@ -11,7 +11,9 @@ type Drag = { name: string; x: number; y: number; width: number; offsetX: number
 type TooltipContent = { node: BoardNode; boardNames?: string[]; boardName?: string };
 type Tooltip = TooltipContent & { anchor: DOMRect; trigger: HTMLElement; pointer?: { x: number; y: number } };
 type TooltipTouch = { id: number; x: number; y: number; trigger: HTMLElement };
-const nodeLabel = (name: string) => name.replace(/^스킬 레벨 상승 - /, '');
+const nodeLabel = (name: string) => name.replace(/^스킬 레벨 상승 - (?:소환: )?/, '');
+const isMobileDevice = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 function countCommonNodes(nodes: BoardNode[]) {
   const counts = new Map<string, number>();
@@ -21,7 +23,7 @@ function countCommonNodes(nodes: BoardNode[]) {
   return counts;
 }
 
-function NodeTooltip({ node, anchor, pointer, boardNames, boardName }: Tooltip) {
+function NodeTooltip({ node, anchor, pointer, boardNames, boardName, mobile }: Tooltip & { mobile: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0, ready: false });
   useLayoutEffect(() => {
@@ -32,7 +34,7 @@ function NodeTooltip({ node, anchor, pointer, boardNames, boardName }: Tooltip) 
     const top = Math.max(8, Math.min(y + 18 + rect.height > window.innerHeight - 8 ? y - rect.height - 14 : y + 18, window.innerHeight - rect.height - 8));
     setPosition({ left, top, ready: true });
   }, [anchor, pointer, node, boardNames]);
-  return createPortal(<div ref={ref} id="node-tooltip" role="tooltip" className={`node-tooltip ${node.grade}`} style={{ left: position.left, top: position.top, visibility: position.ready ? 'visible' : 'hidden' }}>
+  return createPortal(<div ref={ref} id="node-tooltip" role="tooltip" className={`node-tooltip ${node.grade}${mobile ? ' mobile' : ''}`} style={{ left: position.left, top: position.top, visibility: position.ready ? 'visible' : 'hidden' }}>
     {!boardNames && <strong>{node.type === 'Start' ? `${boardName} - 시작` : nodeLabel(node.name)}</strong>}{(boardNames || node.type !== 'Start') && <div className={`tooltip-description ${boardNames ? 'boards-only' : ''}`}>{boardNames ? <p>{boardNames.join(' · ')}</p> : node.effectList.filter(e => e.desc).map((effect, i) => <p key={i}>{effect.desc}</p>)}</div>}
   </div>, document.body);
 }
@@ -133,12 +135,12 @@ const BoardGrid = memo(function BoardGrid({ board, classKey, activeKeys, tooltip
   </div>;
 });
 
-const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, required, tooltipName, tooltipEvents, setRequired }: {
+const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, required, mobile, tooltipName, tooltipEvents, setRequired }: {
   options: readonly RequiredNodeOption[]; grade: SpecialGrade; required: RequiredNodes;
-  tooltipName?: string; tooltipEvents: TooltipEvents;
+  mobile: boolean; tooltipName?: string; tooltipEvents: TooltipEvents;
   setRequired: Dispatch<SetStateAction<RequiredNodes>>;
 }) {
-  function selectCount(name: string, count: 0 | 2 | 4) {
+  function selectCount(name: string, count: SkillLevel) {
     setRequired(previous => {
       const selection = count === 4 ? 'all' : count || undefined;
       if (previous.get(name) === selection) return previous;
@@ -159,8 +161,14 @@ const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, 
       if (isSkill && grade !== '희귀') {
         return <div key={name} className={`skill-option${selected ? ' selected' : ''}`} {...tooltipEvents(location)}>
           <span className="option-name" title={label}>{label}</span>
-          <div className="skill-count-options" role="group" aria-label={`${label} 필수 노드 수`}>
-            {([0, 2, 4] as const).map(value => <button key={value} type="button"
+          <div className={`skill-count-options${mobile ? ' skill-count-stepper' : ''}`} role="group" aria-label={`${label} 필수 노드 수`}>
+            {mobile ? <>
+              <button type="button" aria-label="레벨 낮추기" disabled={count === 0}
+                onClick={() => selectCount(name, skillLevels[count - 1])}>−</button>
+              <output>{count}</output>
+              <button type="button" aria-label="레벨 높이기" disabled={count === 4}
+                onClick={() => selectCount(name, skillLevels[count + 1])}>+</button>
+            </> : skillLevels.map(value => <button key={value} type="button"
               aria-pressed={count === value}
               onClick={() => selectCount(name, value)}>
               {value}
@@ -185,6 +193,7 @@ const RequiredNodeOptions = memo(function RequiredNodeOptions({ options, grade, 
 });
 
 export default function App() {
+  const mobile = isMobileDevice();
   const [initial] = useState(createInitialSettings);
   const [classKey, setClassKey] = useState(initial.classKey);
   const [points, setPoints] = useState(initial.points);
@@ -268,7 +277,7 @@ export default function App() {
   function changeClass(key: string) {
     setClassKey(key); setRequired(defaultRequiredNodes(key)); setPriority([]); setDrag(null);
   }
-  return <div>
+  return <div className={mobile ? 'mobile' : 'desktop'}>
     <main>
       <div className="page-heading"><a className="github-link" href="https://github.com/kaizero-dev/aion2-daevanion-optimizer" target="_blank" rel="noopener noreferrer" aria-label="GitHub 저장소 열기 (새 탭)" title="GitHub 저장소"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12 .75a11.25 11.25 0 0 0-3.558 21.923c.563.104.768-.244.768-.542 0-.267-.01-.975-.015-1.914-3.13.68-3.791-1.508-3.791-1.508-.512-1.3-1.25-1.646-1.25-1.646-1.022-.699.077-.685.077-.685 1.13.08 1.725 1.16 1.725 1.16 1.004 1.72 2.634 1.223 3.275.935.102-.727.393-1.223.715-1.504-2.5-.285-5.129-1.25-5.129-5.566 0-1.23.44-2.234 1.16-3.022-.116-.285-.503-1.43.11-2.98 0 0 .945-.303 3.094 1.155A10.78 10.78 0 0 1 12 6.176c.956.005 1.918.13 2.817.38 2.148-1.458 3.091-1.155 3.091-1.155.615 1.55.228 2.695.112 2.98.722.788 1.158 1.793 1.158 3.022 0 4.328-2.633 5.278-5.141 5.557.404.348.765 1.034.765 2.084 0 1.504-.014 2.718-.014 3.087 0 .3.202.65.774.54A11.253 11.253 0 0 0 12 .75Z" /></svg></a><div><div className="eyebrow">AION2 DAEVANION OPTIMIZER</div><h1>데바니온 최적화</h1><p>필수 노드와 우선순위를 설정하고, 최적화된 결과를 확인하세요.</p></div><div className="creator-credit"><span>만든 사람</span><strong>마몽[바바]</strong></div></div>
       <div className="workspace">
@@ -276,10 +285,10 @@ export default function App() {
           <section className="panel setup"><div className="section-title"><span className="step">01</span><h2>캐릭터 설정</h2></div><div className="setup-fields"><label>직업<select value={classKey} onChange={e => changeClass(e.target.value)}>{classes.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label><label>총 가용 포인트<div className="point-input"><input type="number" min="0" step="1" placeholder="포인트 입력" value={points} onChange={e => setPoints(e.target.value === '' ? '' : String(Math.max(0, Math.trunc(Number(e.target.value)))))} /><span>P</span></div></label></div></section>
           <section className="panel required-panel"><div className="section-title"><span className="step">02</span><h2>필수 노드 지정</h2></div>
             <div className="grade-tabs" role="tablist" aria-label="필수 노드 등급">{specialGrades.map(grade => <button type="button" role="tab" id={`grade-${grade}`} aria-selected={requiredGrade === grade} aria-controls="required-options" className={`${grade} ${requiredGrade === grade ? 'active' : ''}`} key={grade} onClick={() => setRequiredGrade(grade)}><i className="grade-dot" />{grade}</button>)}</div>
-            <RequiredNodeOptions options={requiredOptions} grade={requiredGrade} required={required}
+            <RequiredNodeOptions options={requiredOptions} grade={requiredGrade} required={required} mobile={mobile}
               tooltipName={tooltip?.boardNames ? tooltip.node.name : undefined}
               tooltipEvents={tooltipEvents} setRequired={setRequired} />
-            <p className="field-note">스킬 Lv2 지정이 많을수록 계산이 오래 걸리며,<br />기기의 가용 자원에 따라 계산이 불가할 수 있습니다.</p>
+            <p className="field-note">기기의 가용 자원에 따라 계산이 불가할 수 있습니다.</p>
           </section>
           <section className="panel priority-panel"><div className="section-title"><span className="step">03</span><h2>일반 노드 우선순위</h2></div><div className="priority-list" onPointerDown={startDrag} onPointerMove={dragMove} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onLostPointerCapture={() => setDrag(null)}>{ordered.map((name,index) => <div className={`priority-item ${drag?.name === name ? 'dragging' : ''}`} key={name} data-priority={name}><span className="grip" aria-hidden="true">⠿</span><span className="rank">{index+1}</span><span className="priority-name">{name}</span><div className="order-controls"><button aria-label={`${name} 우선순위 올리기`} disabled={index===0} onClick={() => move(name,index-1)}>↑</button><button aria-label={`${name} 우선순위 내리기`} disabled={index===ordered.length-1} onClick={() => move(name,index+1)}>↓</button></div></div>)}</div><p className="field-note">상위 순위의 최대 개수를 유지하며 다음 순위를 최적화합니다.</p></section>
           <CalculationControls settings={settings} boards={boards} onResult={setResult} onStart={() => { closeTooltip(); setDrag(null); }} />
@@ -317,7 +326,7 @@ export default function App() {
         </div>
       </section>
     </main><footer><span><time dateTime="2026-11-11">2026.11.11</time> 패치 기준</span></footer>
-    {tooltip && <NodeTooltip {...tooltip} />}
+    {tooltip && <NodeTooltip {...tooltip} mobile={mobile} />}
     {drag && createPortal(<div className="priority-item drag-overlay" aria-hidden="true" style={{ left: drag.x, top: drag.y, width: drag.width }}><span className="grip">⠿</span><span className="rank">{ordered.indexOf(drag.name)+1}</span><span className="priority-name">{drag.name}</span></div>, document.body)}
   </div>;
 }

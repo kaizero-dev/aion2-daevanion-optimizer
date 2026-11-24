@@ -7,7 +7,7 @@ import type { BoardWorkerRequest, BoardWorkerResponse, OptimizationProgress, Opt
 
 const { costs } = createGradeAdapter(manifest.grades);
 const classKeys = manifest.classes.map(character => character.key);
-const memoryTiers = [[32, 4096], [16, 2048], [8, 1024]] as const;
+const memoryTiers = [[32, 6144], [16, 3072], [8, 1536]] as const;
 
 async function solveBoards(boards: BoardSolveInput[], workerCount: number, memoryLimit: number,
   timing: ReturnType<typeof trackOptimizationTime>, tables: (BoardOptimizationTable | undefined)[]) {

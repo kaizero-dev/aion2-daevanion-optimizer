@@ -121,13 +121,15 @@ try {
 
   const isolatedWorker = createWorker({ crossOriginIsolated: true });
   try {
-    const shared = await request(isolatedWorker, {
-      requestId: 12, deviceMemoryGiB: 8, settings: { ...settings, availablePoints: 837, requiredNodeNames: allRequired }, boards,
-    });
-    assert.equal(shared.boardTables, boards.length);
-    assert.deepEqual(shared.sharedBudgets, Array(3).fill(1024 ** 3));
-    assert.equal(shared.memoryRetry, false);
-    assert.deepEqual(shared.result, defaults.result);
+    for (const [deviceMemoryGiB, expectedBudgetGiB] of [[8, 1.5], [16, 3], [32, 6]]) {
+      const shared = await request(isolatedWorker, {
+        requestId: deviceMemoryGiB, deviceMemoryGiB, settings: { ...settings, availablePoints: 837, requiredNodeNames: allRequired }, boards,
+      });
+      assert.equal(shared.boardTables, boards.length);
+      assert.deepEqual(shared.sharedBudgets, Array(3).fill(expectedBudgetGiB * 1024 ** 3));
+      assert.equal(shared.memoryRetry, false);
+      assert.deepEqual(shared.result, defaults.result);
+    }
     console.log('Shared worker budget matches the sequential result: passed');
   } finally { await isolatedWorker.terminate(); }
 } finally { await worker.terminate(); }

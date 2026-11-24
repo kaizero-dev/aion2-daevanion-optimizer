@@ -435,7 +435,6 @@ input::-webkit-inner-spin-button {
 }
 .board-tabs button.active {
   color:var(--accent);
-  border-color:var(--accent-border);
 }
 .board-viewport {
   background:#14171b;
@@ -805,8 +804,8 @@ footer {
 .counts-heading h3 {
   margin:0;
 }
-.mobile-remaining-points {
-  display:none;
+.counts-heading>.remaining-points {
+  white-space:nowrap;
 }
 :where(.mobile) main {
   padding:26px 14px 36px;
@@ -890,13 +889,6 @@ footer {
 }
 :where(.mobile) .empty-effects {
   min-height:120px;
-}
-:where(.mobile) .desktop-remaining-points {
-  display:none;
-}
-:where(.mobile) .mobile-remaining-points {
-  display:inline;
-  white-space:nowrap;
 }
 :where(.mobile) footer {
   margin:0 14px;

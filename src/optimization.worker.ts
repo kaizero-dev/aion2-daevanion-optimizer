@@ -71,8 +71,7 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   if (!plan || !('solveBoard' in plan)) return plan;
 
   const work = plan.boards.reduce((sum, board) => sum + board.totalWork, 0);
-  // At the 128 MiB tier, a second exact traversal adds up to another failed run.
-  if (budgetMiB > 128 && work >= minimumWorkForPriorityCheck) {
+  if (work >= minimumWorkForPriorityCheck) {
     const saturated = findSaturatedPriority(graph, availablePoints, required, commonNodePriority, skills);
     if (saturated) {
       const narrowed = createOptimizationPlan(graph, availablePoints, saturated, commonNodePriority, skills, { memoryLimit });

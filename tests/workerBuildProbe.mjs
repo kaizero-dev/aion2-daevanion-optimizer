@@ -146,6 +146,28 @@ try {
       assert.deepEqual(shared.result, defaults.result);
     }
     console.log('Shared worker budget matches the sequential result: passed');
+
+    const partialSkills = ['돌진 일격', '분쇄 파동', '유린의 검', '충격 해제', '공중 결박', '도약 찍기', '발목 베기']
+      .map(name => `스킬 레벨 상승 - ${name}`);
+    const constrainedSettings = {
+      ...settings,
+      availablePoints: 837,
+      requiredNodeNames: allRequired.filter(name => !partialSkills.includes(name)),
+      requiredSkillCounts: Object.fromEntries(partialSkills.map(name => [name, 2])),
+    };
+    const unknownMemory = await request(worker, {
+      requestId: 33, settings: constrainedSettings, boards,
+    }, { timeoutMs: 90_000 });
+    assert.ok(unknownMemory.result, JSON.stringify(unknownMemory));
+    assert.equal(unknownMemory.boardTables, 0);
+    assert.equal(unknownMemory.result.usedPoints, 837);
+    assert.deepEqual(unknownMemory.result.commonCounts, [103, 102, 99, 65, 45, 25]);
+    const constrainedParallel = await request(isolatedWorker, {
+      requestId: 34, deviceMemoryGiB: 8, settings: constrainedSettings, boards,
+    }, { timeoutMs: 90_000 });
+    assert.equal(constrainedParallel.boardTables, boards.length);
+    assert.deepEqual(constrainedParallel.result, unknownMemory.result);
+    console.log('Seven level-2 skills fit the unknown-memory budget and match the parallel result: passed');
   } finally { await isolatedWorker.terminate(); }
 } finally { await worker.terminate(); }
 const cancelled = createWorker();

@@ -72,9 +72,11 @@ export class OptimizationMemoryLimit extends Error {}
 
 // The estimates are 16-byte aligned so a signed 32-bit counter can track the full budget.
 const sharedBudgetUnit = 16;
+function stateSlotBytes(maskWords: number) {
+  return Float64Array.BYTES_PER_ELEMENT + Uint32Array.BYTES_PER_ELEMENT * (1 + maskWords);
+}
 function stateStorageBytes(slots: number, maskWords: number) {
-  const slotBytes = Float64Array.BYTES_PER_ELEMENT + Uint32Array.BYTES_PER_ELEMENT * (1 + maskWords);
-  return 256 + Math.ceil(slotBytes / sharedBudgetUnit) * sharedBudgetUnit * slots;
+  return 256 + Math.ceil(stateSlotBytes(maskWords) * slots / sharedBudgetUnit) * sharedBudgetUnit;
 }
 export function boardTableBytes(table: BoardOptimizationTable) {
   let bytes = 0;
@@ -166,8 +168,13 @@ function takeStateStorage(memory: StateMemory, span: number): StateStorage {
   if (existing) return existing;
   const size = 2 ** bucket;
   reserveMemory(memory, stateStorageBytes(size, memory.maskWords));
+  const buffer = new ArrayBuffer(size * stateSlotBytes(memory.maskWords));
+  const scoresBytes = size * Float64Array.BYTES_PER_ELEMENT;
+  const specialsBytes = size * Uint32Array.BYTES_PER_ELEMENT;
   return {
-    scores: new Float64Array(size), specials: new Uint32Array(size), masks: new Uint32Array(size * memory.maskWords),
+    scores: new Float64Array(buffer, 0, size),
+    specials: new Uint32Array(buffer, scoresBytes, size),
+    masks: new Uint32Array(buffer, scoresBytes + specialsBytes, size * memory.maskWords),
   };
 }
 function releaseStateStorage(memory: StateMemory, table: StateStorage) {
@@ -197,6 +204,7 @@ function extendStateTable(memory: StateMemory, table: StateTable, firstCost: num
 
 interface Step { node: number; previousNeighbors: number[]; keep: number[]; futureGroups: number[]; futureRootMask: number }
 interface TransitionScratch { labels: Int32Array; next: Int32Array; components: Int32Array; canonical: Int32Array }
+const maxCachedBoundariesPerStep = 1_024;
 
 function skillVariants(nodes: BoardSolveNode[], order: number[], skillTargets: number[]) {
   const counts = skillTargets.map(() => 0);
@@ -435,19 +443,33 @@ export function createBoardSolver(memoryLimit: number, observe?: (states: number
     for (const [stepIndex, step] of steps.entries()) {
       const node = nodes[step.node];
       const { targetValue, special, skill, bitIndex } = node;
-      const bitWord = bitIndex >>> 5;
+      const bitWord = bitIndex < 0 ? -1 : bitIndex >>> 5;
       const bit = 1 << (bitIndex & 31);
       const choices = selectionChoices(node);
       const nextStates = new Map<string, StateTable>();
+      // Skill counts and point costs do not affect the connectivity transition.
+      // Cache each boundary only for this step and keep its footprint bounded.
+      const boundaryCache = skillCount >= 3 && states.size >= 256
+        ? new Map<string, (string | null)[]>() : undefined;
       for (const [state, costs] of states) {
         const counts = state.slice(0, skillCount);
         const partition = state.slice(skillCount);
-        for (const selected of choices) {
+        let boundaries = boundaryCache?.get(partition);
+        if (!boundaries && boundaryCache && boundaryCache.size < maxCachedBoundariesPerStep) {
+          boundaries = [];
+          boundaryCache.set(partition, boundaries);
+        }
+        for (let choice = 0; choice < choices.length; choice++) {
+          const selected = choices[choice];
           const addedCost = selected ? node.cost : 0;
           const firstCost = costs.minCost + addedCost;
           const lastCost = Math.min(costs.maxCost + addedCost, limit);
           if (firstCost > lastCost) continue;
-          const boundary = transition(partition, step, selected, node.root, scratch);
+          let boundary = boundaries?.[choice];
+          if (boundary === undefined) {
+            boundary = transition(partition, step, selected, node.root, scratch);
+            if (boundaries) boundaries[choice] = boundary;
+          }
           if (boundary === null) continue;
           const nextCounts = selected && skill !== undefined && Number(counts[skill]) < skillTargets[skill]
             ? counts.slice(0, skill) + (Number(counts[skill]) + 1) + counts.slice(skill + 1) : counts;
@@ -485,7 +507,7 @@ export function createBoardSolver(memoryLimit: number, observe?: (states: number
             entries.scores[to] = score;
             entries.specials[to] = specials;
             for (let word = 0; word < words; word++) entries.masks[toWord + word] = costs.masks[fromWord + word];
-            if (selected) entries.masks[toWord + bitWord] |= bit;
+            if (selected && bitWord >= 0) entries.masks[toWord + bitWord] |= bit;
             if (nextCost < entries.minCost) entries.minCost = nextCost;
             if (nextCost > entries.maxCost) entries.maxCost = nextCost;
           }
@@ -582,19 +604,21 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
       commonCounts: priority.map(name => [...direct].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length) };
   }
   const sorted = graph.nodes.map((_, i) => i).sort((a, b) => graph.nodes[a].key < graph.nodes[b].key ? -1 : 1);
-  const bitIndices = graph.nodes.map(() => 0);
+  const roots = new Set(graph.roots);
+  const optional = (index: number) => !roots.has(index) && !required.has(index);
+  const bitIndices = graph.nodes.map(() => -1);
+  let nextBit = sorted.filter(optional).length;
   const boardMembers = new Map<string, number[]>();
-  sorted.forEach((index, rank) => {
-    bitIndices[index] = sorted.length - rank - 1;
+  sorted.forEach(index => {
+    if (optional(index)) bitIndices[index] = --nextBit;
     const { boardKey } = graph.nodes[index];
     const members = boardMembers.get(boardKey);
     if (members) members.push(index);
     else boardMembers.set(boardKey, [index]);
   });
   const membersByBoard = [...boardMembers.values()];
-  const roots = new Set(graph.roots);
-  // Contiguous boards can use compact masks. Interleaved keys retain their
-  // global bit positions so ranking and decoding use the same order.
+  // Forced bits are identical for every feasible candidate. The remaining bits
+  // retain their global key order for tie-breaking, including interleaved boards.
   const contiguousBoards = membersByBoard.flat().every((node, index) => node === sorted[index]);
   const limit = Math.min(budget, graph.nodes.reduce((sum, n) => sum + n.cost, 0));
   // Mixed-radix encoding is exactly equivalent to comparing the count vector
@@ -617,7 +641,8 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
   // need local topology and the already assigned values to reproduce a table.
   const boards = membersByBoard.map((members): BoardSolveInput => {
     const indices = new Map(members.map((node, index) => [node, index]));
-    const nodes = members.map((index, rank): BoardSolveNode => {
+    let nextLocalBit = members.filter(optional).length;
+    const nodes = members.map((index): BoardSolveNode => {
       const { node, neighbors, cost } = graph.nodes[index];
       const root = roots.has(index);
       const requiredNode = required.has(index);
@@ -627,7 +652,7 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
         root, forced: root || requiredNode, selectable: graph.minimumCosts[index] <= budget,
         cost, targetValue: common ? placeValues.get(node.name) ?? 0 : 0,
         special: cost > 0 && !common && !requiredNode, skill: skillByNode.get(index),
-        bitIndex: contiguousBoards ? members.length - rank - 1 : bitIndices[index],
+        bitIndex: contiguousBoards && optional(index) ? --nextLocalBit : bitIndices[index],
       };
     });
     const order = chooseTraversal(nodes, nodes.map((_, index) => index));
@@ -710,7 +735,7 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
         if (minCost > maxCost) return null;
 
         const previousEntries = [...globalEntries];
-        const shift = BigInt(contiguousBoards ? nodes.length : 0);
+        const shift = BigInt(contiguousBoards ? nodes.filter(node => node.bitIndex >= 0).length : 0);
         if (shift) for (const [, previous] of previousEntries) {
           for (let i = 0; i < previous.masks.length; i++) previous.masks[i] <<= shift;
         }
@@ -836,7 +861,9 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
       const winner = finalists.costs.length - 1;
       const usedPoints = finalists.costs[winner];
       const mask = finalists.masks[winner];
-      const selected = new Set(bitIndices.flatMap((bitIndex, i) => mask & (1n << BigInt(bitIndex)) ? [i] : []));
+      const selected = new Set([...roots, ...required,
+        ...bitIndices.flatMap((bitIndex, i) => bitIndex >= 0 && (mask & (1n << BigInt(bitIndex))) ? [i] : []),
+      ]);
       if (!meetsSkills(selected)) throw new Error('Skill requirement mismatch');
       if (verifySelection(graph, selected, budget, required) !== usedPoints) throw new Error('Frontier cost mismatch');
       const commonCounts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length);

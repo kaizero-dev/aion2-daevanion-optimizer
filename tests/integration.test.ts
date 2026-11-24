@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { OptimizationJob } from '../src/optimizationJob.ts';
-import { trackOptimizationTime } from '../src/optimizationTiming.ts';
+import { trackMergeTime, trackOptimizationTime } from '../src/optimizationTiming.ts';
 import { summarizeEffects } from '../src/optimizationEffects.ts';
 import { buildGraph, prepareInput } from '../src/optimizationGraph.ts';
 import { optimizeGraph } from '../src/optimizer.ts';
@@ -94,6 +94,27 @@ test('time estimates use three samples and update at most once per second', () =
   assert.deepEqual(estimates, [null, 3]);
   sample(2400, 45);
   assert.deepEqual(estimates, [null, 3, 5]);
+});
+
+test('merge timing replaces projected work with actual work and learns the current processing rate', () => {
+  let now = 0;
+  const board = { nodes: [], limit: 0, skillTargets: [], order: [], stepWork: [], totalWork: 0 };
+  const timing = trackMergeTime([board, board], () => now);
+  const projected = timing.remainingSeconds();
+  timing.sample({ index: 0, completedWork: 0, totalWork: 180_000_000 });
+  assert.ok(timing.remainingSeconds() > projected + 1);
+
+  now = 500;
+  timing.sample({ index: 0, completedWork: 20_000_000, totalWork: 180_000_000 });
+  assert.ok(timing.remainingSeconds() > 5);
+  now = 4500;
+  timing.sample({ index: 0, completedWork: 180_000_000, totalWork: 180_000_000 });
+  assert.ok(timing.remainingSeconds() < 1);
+
+  timing.sample({ index: 1, completedWork: 0, totalWork: 120_000_000 });
+  assert.ok(timing.remainingSeconds() > 4);
+  timing.sample({ index: 1, completedWork: 120_000_000, totalWork: 120_000_000 });
+  assert.ok(timing.remainingSeconds() < 1);
 });
 
 test('worker construction and structured-clone errors become computation failures', () => {

@@ -62,7 +62,7 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   // The device signal describes approximate total RAM, so leave headroom for
   // the browser, the OS, and allocations outside the solver's estimate.
   const budgetMiB = memoryTiers.find(([minimumGiB]) => deviceMemoryGiB >= minimumGiB)?.[1]
-    ?? Math.max(128, (deviceMemoryGiB || 2) * 128);
+    ?? Math.max(128, deviceMemoryGiB * 128);
   const memoryLimit = budgetMiB * 1024 ** 2;
   const plan = createOptimizationPlan(graph, availablePoints, required, commonNodePriority, skills, { memoryLimit });
   if (!plan || !('solveBoard' in plan)) return plan;

@@ -16,19 +16,7 @@ function verifySelection(graph: OptimizationGraph, selected: Set<number>, budget
   return usedPoints;
 }
 
-interface MergeFrontier {
-  costs: Float64Array;
-  scores: Float64Array;
-  specials: Uint32Array;
-  masks: bigint[];
-}
-
-function readMask(masks: Uint32Array, slot: number, words: number) {
-  let mask = 0n;
-  const start = slot * words;
-  for (let word = start + words - 1; word >= start; word--) mask = (mask << 32n) | BigInt(masks[word]);
-  return mask;
-}
+interface Candidate { score: number; special: number; mask: bigint }
 interface StateStorage {
   scores: Float64Array;
   // Count plus one. Zero marks an empty cost slot without a separate array.
@@ -639,197 +627,107 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
   const solveBoard = (index: number, onProgress?: (progress: BoardProgress) => void) => solver.solveBoard(boards[index], onProgress);
   const combineBoards = (getBoard: OptimizationPlan['solveBoard'], bufferedBoards: (BoardOptimizationTable | undefined)[],
     onFinalizing?: () => void) => {
-    // Equal skill counts share one cost frontier. Scores strictly increase with
-    // cost after each Pareto reduction.
-    let mergeBytes = 0;
-    const reserveMerge = (bytes: number) => {
-      reserveMemory(memory, bytes);
-      mergeBytes += bytes;
-    };
-    const releaseMerge = (bytes: number) => {
-      releaseMemory(memory, bytes);
-      mergeBytes -= bytes;
-    };
-    try {
-      const remaining = skills.map(skill => skill.nodes.length);
-      const maskBytes = 32 + Math.ceil(graph.nodes.length / 64) * 8;
-      let minCost = 0, maxCost = 0, previousBytes = 0;
-      let globalEntries = new Map<string, MergeFrontier>([[emptyCounts, {
-        costs: Float64Array.of(0), scores: Float64Array.of(0), specials: Uint32Array.of(1), masks: [0n],
-      }]]);
-      for (const [index, { nodes }] of boards.entries()) {
-        for (const { skill } of nodes) {
-          if (skill !== undefined) remaining[skill]--;
-        }
-        let boardEntries = bufferedBoards[index];
-        const buffered = boardEntries !== undefined;
-        if (buffered) bufferedBoards[index] = undefined;
-        else boardEntries = getBoard(index);
-        if (!boardEntries || !boardEntries.size) return null;
-        // Earlier boards are merged and all later boards are ready to merge.
-        if (onFinalizing && boards.every((_, i) => i <= index || bufferedBoards[i] != null)) onFinalizing();
-
-        let localMin = limit, localMax = 0, localBytes = 0;
-        const localEntries: [string, MergeFrontier][] = [];
-        for (const [counts, entries] of boardEntries) {
-          const { offset, scores, specials, masks } = entries;
-          const words = masks.length / scores.length;
-          const first = entries.minCost - offset, last = entries.maxCost - offset;
-          let size = 0;
-          for (let slot = first; slot <= last; slot++) size += Number(specials[slot] !== 0);
-          const bytes = 384 + size * (60 + Math.ceil(words / 2) * 8);
-          reserveMerge(bytes);
-          localBytes += bytes;
-          const local: MergeFrontier = {
-            costs: new Float64Array(size), scores: new Float64Array(size),
-            specials: new Uint32Array(size), masks: new Array<bigint>(size),
-          };
-          let to = 0;
-          for (let slot = first; slot <= last; slot++) {
-            if (specials[slot] === 0) continue;
-            local.costs[to] = offset + slot;
-            local.scores[to] = scores[slot];
-            local.specials[to] = specials[slot];
-            local.masks[to] = readMask(masks, slot, words);
-            to++;
-          }
-          localEntries.push([counts, local]);
-          localMin = Math.min(localMin, entries.minCost);
-          localMax = Math.max(localMax, entries.maxCost);
-        }
-        if (!buffered) {
-          for (const entries of boardEntries.values()) releaseStateStorage(memory, entries);
-        } else {
-          releaseMemory(memory, boardTableBytes(boardEntries));
-        }
-        boardEntries = undefined;
-
-        minCost += localMin;
-        maxCost = Math.min(limit, maxCost + localMax);
-        if (minCost > maxCost) return null;
-
-        const previousEntries = [...globalEntries];
-        const shift = BigInt(contiguousBoards ? nodes.length : 0);
-        if (shift) for (const [, previous] of previousEntries) {
-          for (let i = 0; i < previous.masks.length; i++) previous.masks[i] <<= shift;
-        }
-
-        // Work on one output frontier at a time so all groups share one scratch
-        // table and only surviving candidates are retained between stages.
-        const pairsByCounts = new Map<string, number[]>();
-        let pairBytes = 0;
-        for (const [a, [previousCounts, previous]] of previousEntries.entries()) {
-          for (const [b, [localCounts, local]] of localEntries.entries()) {
-            if (previous.costs[0] + local.costs[0] > limit) continue;
-            let counts = '';
-            for (let i = 0; i < skills.length; i++) {
-              const count = Math.min(skills[i].count, Number(previousCounts[i]) + Number(localCounts[i]));
-              if (count + remaining[i] < skills[i].count) break;
-              counts += count;
-            }
-            if (counts.length !== skills.length) continue;
-            let pairs = pairsByCounts.get(counts);
-            const bytes = (pairs ? 0 : 128) + 24;
-            reserveMerge(bytes);
-            pairBytes += bytes;
-            if (!pairs) pairsByCounts.set(counts, pairs = []);
-            pairs.push(a, b);
-          }
-        }
-
-        const span = maxCost - minCost + 1;
-        const scratchBytes = 384 + span * 28;
-        reserveMerge(scratchBytes);
-        const scores = new Float64Array(span);
-        const specials = new Uint32Array(span);
-        const prefixMasks = new Array<bigint>(span);
-        const localMasks = new Array<bigint>(span);
-        const lastBoard = index === boards.length - 1;
-        const nextEntries = new Map<string, MergeFrontier>();
-        let nextBytes = 0;
-        for (const [counts, pairs] of pairsByCounts) {
-          specials.fill(0);
-          for (let pair = 0; pair < pairs.length; pair += 2) {
-            const previous = previousEntries[pairs[pair]][1];
-            const local = localEntries[pairs[pair + 1]][1];
-            let lastLocal = local.costs.length - 1;
-            for (let a = 0; a < previous.costs.length; a++) {
-              const available = limit - previous.costs[a];
-              while (lastLocal >= 0 && local.costs[lastLocal] > available) lastLocal--;
-              if (lastLocal < 0) break;
-              const prefix = previous.masks[a];
-              const prefixScore = previous.scores[a];
-              const prefixSpecials = previous.specials[a] - 1;
-              const costOffset = previous.costs[a] - minCost;
-              // The last board only needs the highest affordable score for each prefix.
-              for (let b = lastBoard ? lastLocal : 0; b <= lastLocal; b++) {
-                const to = costOffset + local.costs[b];
-                const score = prefixScore + local.scores[b];
-                const special = prefixSpecials + local.specials[b];
-                const existing = specials[to];
-                if (existing !== 0) {
-                  const existingScore = scores[to];
-                  if (existingScore > score || existingScore === score && existing < special) continue;
-                  if (existingScore === score && existing === special) {
-                    // Disjoint bit ranges preserve the ordering of the concatenated mask.
-                    if (contiguousBoards) {
-                      const oldPrefix = prefixMasks[to];
-                      if (prefix < oldPrefix || prefix === oldPrefix && local.masks[b] <= localMasks[to]) continue;
-                    } else if ((prefix | local.masks[b]) <= (prefixMasks[to] | localMasks[to])) continue;
-                  }
-                }
-                scores[to] = score;
-                specials[to] = special;
-                prefixMasks[to] = prefix;
-                localMasks[to] = local.masks[b];
-              }
-            }
-          }
-
-          let bestScore = -1, size = 0;
-          for (let slot = 0; slot < span; slot++) {
-            if (specials[slot] === 0 || scores[slot] <= bestScore) continue;
-            bestScore = scores[slot];
-            size++;
-          }
-          const bytes = 384 + size * (28 + maskBytes);
-          reserveMerge(bytes);
-          nextBytes += bytes;
-          const frontier: MergeFrontier = {
-            costs: new Float64Array(size), scores: new Float64Array(size),
-            specials: new Uint32Array(size), masks: new Array<bigint>(size),
-          };
-          bestScore = -1;
-          let to = 0;
-          for (let slot = 0; slot < span; slot++) {
-            if (specials[slot] === 0 || scores[slot] <= bestScore) continue;
-            bestScore = scores[slot];
-            frontier.costs[to] = minCost + slot;
-            frontier.scores[to] = bestScore;
-            frontier.specials[to] = specials[slot];
-            frontier.masks[to] = prefixMasks[slot] | localMasks[slot];
-            to++;
-          }
-          nextEntries.set(counts, frontier);
-        }
-        globalEntries = nextEntries;
-        releaseMerge(previousBytes + pairBytes + localBytes + scratchBytes);
-        previousBytes = nextBytes;
-        if (!globalEntries.size) return null;
+    const candidateBytes = 96;
+    const remaining = skills.map(skill => skill.nodes.length);
+    let previousBytes = 0;
+    let globalEntries = new Map<string, (Candidate | undefined)[]>([[emptyCounts, [{ score: 0, special: 0, mask: 0n }]]]);
+    for (const [index, { nodes }] of boards.entries()) {
+      for (const { skill } of nodes) {
+        if (skill !== undefined) remaining[skill]--;
       }
-      const finalists = globalEntries.get(goalCounts);
-      if (!finalists) return null;
-      const winner = finalists.costs.length - 1;
-      const usedPoints = finalists.costs[winner];
-      const mask = finalists.masks[winner];
-      const selected = new Set(bitIndices.flatMap((bitIndex, i) => mask & (1n << BigInt(bitIndex)) ? [i] : []));
-      if (!meetsSkills(selected)) throw new Error('Skill requirement mismatch');
-      if (verifySelection(graph, selected, budget, required) !== usedPoints) throw new Error('Frontier cost mismatch');
-      const commonCounts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length);
-      const verifiedObjective = commonCounts.reduce((sum, value, rank) => sum + value * placeValues.get(priority[rank])!, 0);
-      if (verifiedObjective !== finalists.scores[winner]) throw new Error('Frontier achievement mismatch');
-      return { activeKeys: [...selected].map(i => graph.nodes[i].key).sort(), usedPoints, commonCounts };
-    } finally { releaseMerge(mergeBytes); }
+      const buffered = bufferedBoards[index];
+      if (buffered !== undefined) bufferedBoards[index] = undefined;
+      const boardEntries = buffered === undefined ? getBoard(index) : buffered;
+      if (!boardEntries) return null;
+      // Earlier boards are merged and all later boards are ready to merge.
+      if (onFinalizing && boards.every((_, i) => i <= index || bufferedBoards[i] != null)) onFinalizing();
+      const nextGlobal = new Map<string, (Candidate | undefined)[]>();
+      const shift = BigInt(contiguousBoards ? nodes.length : 0);
+      let nextBytes = 0;
+      for (const [previousCounts, previous] of globalEntries) for (const [localCounts, entries] of boardEntries) {
+        let counts = '';
+        for (let i = 0; i < skills.length; i++) {
+          const count = Math.min(skills[i].count, Number(previousCounts[i]) + Number(localCounts[i]));
+          if (count + remaining[i] < skills[i].count) break;
+          counts += count;
+        }
+        if (counts.length !== skills.length) continue;
+        const maskWords = entries.masks.length / entries.scores.length;
+        let combined = nextGlobal.get(counts);
+        for (let a = 0; a < previous.length; a++) {
+          const first = previous[a];
+          if (!first) continue;
+          const prefixMask = first.mask << shift;
+          for (let b = entries.minCost; b <= entries.maxCost && a + b <= limit; b++) {
+            const index = b - entries.offset;
+            const encodedSpecial = entries.specials[index];
+            if (encodedSpecial === 0) continue;
+            if (!combined) {
+              const bytes = 128;
+              reserveMemory(memory, bytes);
+              nextBytes += bytes;
+              combined = [];
+              nextGlobal.set(counts, combined);
+            }
+            const score = first.score + entries.scores[index];
+            const special = first.special + encodedSpecial - 1;
+            const existing = combined[a + b];
+            if (existing && (existing.score > score || existing.score === score && existing.special < special)) continue;
+            // Decode only masks that pass the score and special-node comparisons.
+            let secondMask = 0n;
+            const maskStart = index * maskWords;
+            for (let word = maskStart + maskWords - 1; word >= maskStart; word--) {
+              secondMask = (secondMask << 32n) | BigInt(entries.masks[word]);
+            }
+            const mask = prefixMask | secondMask;
+            if (existing && existing.score === score && existing.special === special && existing.mask >= mask) continue;
+            if (existing) { existing.score = score; existing.special = special; existing.mask = mask; }
+            else {
+              const bytes = candidateBytes + 16 * Math.max(0, a + b + 1 - combined.length);
+              reserveMemory(memory, bytes);
+              nextBytes += bytes;
+              combined[a + b] = { score, special, mask };
+            }
+          }
+        }
+      }
+      if (buffered === undefined) {
+        for (const entries of boardEntries.values()) releaseStateStorage(memory, entries);
+      } else {
+        memory.bytes -= boardTableBytes(boardEntries);
+      }
+      for (const combined of nextGlobal.values()) {
+        let bestObjective = -1;
+        for (let cost = 0; cost < combined.length; cost++) {
+          const candidate = combined[cost];
+          if (!candidate) continue;
+          if (candidate.score <= bestObjective) {
+            combined[cost] = undefined;
+            nextBytes -= candidateBytes;
+            releaseMemory(memory, candidateBytes);
+          } else bestObjective = candidate.score;
+        }
+      }
+      globalEntries = nextGlobal;
+      memory.bytes -= previousBytes;
+      previousBytes = nextBytes;
+      if (!globalEntries.size) return null;
+    }
+    const finalists = globalEntries.get(goalCounts) ?? [];
+    let winner: Candidate | undefined;
+    let usedPoints = 0;
+    for (let cost = 0; cost < finalists.length; cost++) {
+      const candidate = finalists[cost];
+      if (candidate && (!winner || candidate.score > winner.score)) { winner = candidate; usedPoints = cost; }
+    }
+    if (!winner) return null;
+    const selected = new Set(bitIndices.flatMap((bitIndex, i) => winner!.mask & (1n << BigInt(bitIndex)) ? [i] : []));
+    if (!meetsSkills(selected)) throw new Error('Skill requirement mismatch');
+    if (verifySelection(graph, selected, budget, required) !== usedPoints) throw new Error('Frontier cost mismatch');
+    const commonCounts = priority.map(name => [...selected].filter(i => graph.nodes[i].node.grade === '일반' && graph.nodes[i].node.name === name).length);
+    const verifiedObjective = commonCounts.reduce((sum, value, rank) => sum + value * placeValues.get(priority[rank])!, 0);
+    if (verifiedObjective !== winner.score) throw new Error('Frontier achievement mismatch');
+    return { activeKeys: [...selected].map(i => graph.nodes[i].key).sort(), usedPoints, commonCounts };
   };
   return {
     boards, solveBoard,

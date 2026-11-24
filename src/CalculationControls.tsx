@@ -25,6 +25,9 @@ export function CalculationControls({ settings, boards, onStart, onResult }: Pro
   const calculateButton = useRef<HTMLButtonElement>(null);
   const calculating = startedAt !== null;
   const estimatedSeconds = progress?.durationSeconds;
+  const estimateLabel = estimatedSeconds == null
+    ? '계산 중'
+    : elapsedSeconds >= estimatedSeconds ? '예상 시간 재계산 중' : `약 ${estimatedSeconds}초`;
 
   useLayoutEffect(() => {
     setStartedAt(null);
@@ -89,7 +92,7 @@ export function CalculationControls({ settings, boards, onStart, onResult }: Pro
         </p>
         <dl className="calculation-times">
           <dt>예상 시간</dt>
-          <dd aria-live="polite">{estimatedSeconds == null ? '계산 중' : `약 ${Math.max(estimatedSeconds, elapsedSeconds)}초`}</dd>
+          <dd aria-live="polite">{estimateLabel}</dd>
           <dt>경과 시간</dt>
           <dd>{elapsedSeconds}초</dd>
         </dl>

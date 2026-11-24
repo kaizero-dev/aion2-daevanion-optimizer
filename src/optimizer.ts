@@ -43,6 +43,7 @@ interface StateTable extends StateStorage {
 }
 export type BoardOptimizationTable = Map<string, StateTable> | null;
 export interface BoardProgress { completedWork: number; totalWork: number }
+export interface MergeProgress extends BoardProgress { index: number }
 
 interface BoardSolveNode {
   row: number;
@@ -157,7 +158,7 @@ interface OptimizationPlan {
   boards: BoardSolveInput[];
   solveBoard(index: number, onProgress?: (progress: BoardProgress) => void): BoardOptimizationTable;
   finish(getBoard: (index: number) => BoardOptimizationTable, bufferedBoards?: (BoardOptimizationTable | undefined)[],
-    onFinalizing?: () => void): OptimizationResult | null;
+    onFinalizing?: () => void, onMergeProgress?: (progress: MergeProgress) => void): OptimizationResult | null;
 }
 function takeStateStorage(memory: StateMemory, span: number): StateStorage {
   const bucket = Math.ceil(Math.log2(span));
@@ -638,7 +639,7 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
   const { memory } = solver;
   const solveBoard = (index: number, onProgress?: (progress: BoardProgress) => void) => solver.solveBoard(boards[index], onProgress);
   const combineBoards = (getBoard: OptimizationPlan['solveBoard'], bufferedBoards: (BoardOptimizationTable | undefined)[],
-    onFinalizing?: () => void) => {
+    onFinalizing?: () => void, onMergeProgress?: (progress: MergeProgress) => void) => {
     // Equal skill counts share one cost frontier. Scores strictly increase with
     // cost after each Pareto reduction.
     let mergeBytes = 0;
@@ -718,6 +719,8 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
         // table and only surviving candidates are retained between stages.
         const pairsByCounts = new Map<string, number[]>();
         let pairBytes = 0;
+        const lastBoard = index === boards.length - 1;
+        let totalWork = 0, completedWork = 0;
         for (const [a, [previousCounts, previous]] of previousEntries.entries()) {
           for (const [b, [localCounts, local]] of localEntries.entries()) {
             if (previous.costs[0] + local.costs[0] > limit) continue;
@@ -734,8 +737,11 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
             pairBytes += bytes;
             if (!pairs) pairsByCounts.set(counts, pairs = []);
             pairs.push(a, b);
+            if (onMergeProgress) totalWork += previous.costs.length * (lastBoard ? 1 : local.costs.length);
           }
         }
+        let lastProgressAt = onMergeProgress ? performance.now() : 0;
+        onMergeProgress?.({ index, completedWork, totalWork });
 
         const span = maxCost - minCost + 1;
         const scratchBytes = 384 + span * 28;
@@ -744,7 +750,6 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
         const specials = new Uint32Array(span);
         const prefixMasks = new Array<bigint>(span);
         const localMasks = new Array<bigint>(span);
-        const lastBoard = index === boards.length - 1;
         const nextEntries = new Map<string, MergeFrontier>();
         let nextBytes = 0;
         for (const [counts, pairs] of pairsByCounts) {
@@ -784,6 +789,14 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
                 localMasks[to] = local.masks[b];
               }
             }
+            if (onMergeProgress) {
+              completedWork += previous.costs.length * (lastBoard ? 1 : local.costs.length);
+              const now = performance.now();
+              if (now - lastProgressAt >= 250 && completedWork < totalWork) {
+                lastProgressAt = now;
+                onMergeProgress({ index, completedWork, totalWork });
+              }
+            }
           }
 
           let bestScore = -1, size = 0;
@@ -815,6 +828,7 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
         globalEntries = nextEntries;
         releaseMerge(previousBytes + pairBytes + localBytes + scratchBytes);
         previousBytes = nextBytes;
+        onMergeProgress?.({ index, completedWork, totalWork });
         if (!globalEntries.size) return null;
       }
       const finalists = globalEntries.get(goalCounts);
@@ -833,10 +847,10 @@ export function createOptimizationPlan(graph: OptimizationGraph, budget: number,
   };
   return {
     boards, solveBoard,
-    finish(getBoard, bufferedBoards = [], onFinalizing) {
+    finish(getBoard, bufferedBoards = [], onFinalizing, onMergeProgress) {
       reserveMemory(memory, bufferedBoards.reduce((bytes, table) => bytes + boardTableBytes(table ?? null), 0));
       memory.bufferedBoards = bufferedBoards;
-      try { return combineBoards(getBoard, bufferedBoards, onFinalizing); }
+      try { return combineBoards(getBoard, bufferedBoards, onFinalizing, onMergeProgress); }
       finally { memory.bufferedBoards = undefined; }
     },
   };

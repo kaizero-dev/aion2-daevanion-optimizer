@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGraph } from '../src/optimizationGraph.ts';
+import { findSaturatedPriority } from '../src/optimizationFastPath.ts';
 import { exhaustiveOracle } from './exhaustiveOracle.ts';
 import { boardTableBytes, createBoardSolver, createOptimizationPlan, OptimizationMemoryLimit, optimizeGraph as optimizeFrontier, optimizeSkillRequirements } from '../src/optimizer.ts';
 
@@ -18,6 +19,12 @@ test('a two-node skill requirement chooses board locations together with common-
   const required = new Set<number>();
   const result = optimizeSkillRequirements(graph, 6, required, ['high', 'low'], [{ nodes, count: 2 }]);
   assert.deepEqual(result?.activeKeys, ['a:0', 'b:0', 'c:0', 'c:1', 'c:2', 'd:0', 'd:1', 'd:2']);
+  const pinned = findSaturatedPriority(graph, 6, required, ['high'], [{ nodes, count: 2 }]);
+  assert.ok(pinned);
+  assert.deepEqual([...pinned].map(index => graph.nodes[index].key), ['c:2', 'd:2']);
+  assert.equal(required.size, 0);
+  assert.equal(findSaturatedPriority(graph, 5, required, ['high'], [{ nodes, count: 2 }]), undefined);
+  assert.equal(findSaturatedPriority(graph, 7, required, ['high'], [{ nodes, count: 3 }]), undefined);
   const plan = createOptimizationPlan(graph, 6, required, ['high', 'low'], [{ nodes, count: 2 }]);
   assert.ok(plan && 'solveBoard' in plan);
   const used = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
@@ -96,6 +103,11 @@ test('frontier DP agrees with all-subset oracle on 400 seeded connected/disconne
     const plan = createOptimizationPlan(graph, budget, required, ['high', 'middle', 'low'], skills, { memoryLimit: 2 ** 20 });
     const adaptive = plan && 'solveBoard' in plan ? plan.finish(plan.solveBoard) : plan;
     assert.deepEqual(adaptive, constrainedFrontier, `memory-limited traversal trial ${trial}`);
+    const pinned = findSaturatedPriority(graph, budget, required, ['high', 'middle', 'low'], skills);
+    if (pinned) {
+      const narrowed = optimizeSkillRequirements(graph, budget, pinned, ['high', 'middle', 'low'], skills);
+      assert.deepEqual(narrowed, constrainedFrontier, `saturated priorities trial ${trial}`);
+    }
   }
 });
 

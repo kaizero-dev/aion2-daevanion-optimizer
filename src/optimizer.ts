@@ -154,7 +154,7 @@ function reserveMemory(memory: StateMemory, bytes: number) {
   memory.bytes += bytes;
 }
 
-interface OptimizationPlan {
+export interface OptimizationPlan {
   boards: BoardSolveInput[];
   solveBoard(index: number, onProgress?: (progress: BoardProgress) => void): BoardOptimizationTable;
   finish(getBoard: (index: number) => BoardOptimizationTable, bufferedBoards?: (BoardOptimizationTable | undefined)[],

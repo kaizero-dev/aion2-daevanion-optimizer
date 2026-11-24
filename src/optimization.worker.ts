@@ -1,13 +1,16 @@
 import manifest from '../data/manifest.json';
 import { createGradeAdapter } from './grades';
+import { findSaturatedPriority } from './optimizationFastPath';
 import { buildGraph, prepareInput, type OptimizationGraph, type PreparedInput } from './optimizationGraph';
-import { createOptimizationPlan, OptimizationMemoryLimit, type BoardOptimizationTable, type BoardSolveInput } from './optimizer';
+import { createOptimizationPlan, OptimizationMemoryLimit, type BoardOptimizationTable, type BoardSolveInput, type OptimizationPlan } from './optimizer';
 import { trackMergeTime, trackOptimizationTime } from './optimizationTiming';
 import type { BoardWorkerRequest, BoardWorkerResponse, OptimizationProgress, OptimizationRequest, OptimizationWorkerMessage } from './optimizationProtocol';
 
 const { costs } = createGradeAdapter(manifest.grades);
 const classKeys = manifest.classes.map(character => character.key);
 const memoryTiers = [[32, 6144], [16, 3072], [8, 1536]] as const;
+// The traversal work estimate lets small jobs bypass the feasibility check.
+const minimumWorkForPriorityCheck = 500_000;
 
 async function solveBoards(boards: BoardSolveInput[], workerCount: number, memoryLimit: number,
   timing: ReturnType<typeof trackOptimizationTime>, tables: (BoardOptimizationTable | undefined)[]) {
@@ -67,6 +70,29 @@ async function optimize(graph: OptimizationGraph, { availablePoints, commonNodeP
   const plan = createOptimizationPlan(graph, availablePoints, required, commonNodePriority, skills, { memoryLimit });
   if (!plan || !('solveBoard' in plan)) return plan;
 
+  const work = plan.boards.reduce((sum, board) => sum + board.totalWork, 0);
+  // At the 128 MiB tier, a second exact traversal adds up to another failed run.
+  if (budgetMiB > 128 && work >= minimumWorkForPriorityCheck) {
+    const saturated = findSaturatedPriority(graph, availablePoints, required, commonNodePriority, skills);
+    if (saturated) {
+      const narrowed = createOptimizationPlan(graph, availablePoints, saturated, commonNodePriority, skills, { memoryLimit });
+      if (narrowed && !('solveBoard' in narrowed)) return narrowed;
+      if (narrowed) {
+        try {
+          const result = await solvePlan(narrowed, deviceMemoryGiB, memoryLimit, startedAt, report);
+          if (result) return result;
+        } catch (error) {
+          if (!(error instanceof OptimizationMemoryLimit)) throw error;
+          // The narrowed plan can choose a different traversal under this budget.
+        }
+      }
+    }
+  }
+  return solvePlan(plan, deviceMemoryGiB, memoryLimit, startedAt, report);
+}
+
+async function solvePlan(plan: OptimizationPlan, deviceMemoryGiB: number, memoryLimit: number, startedAt: number,
+  report: (progress: OptimizationProgress) => void) {
   const boardWork = plan.boards.map(board => board.totalWork);
   const boardCount = boardWork.length;
   const workerCount = Math.min(deviceMemoryGiB > 4 ? 3 : 1, boardCount, navigator.hardwareConcurrency || 1);
